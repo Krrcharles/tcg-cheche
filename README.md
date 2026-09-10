@@ -4,7 +4,7 @@ Discord TCG built around a shared card catalogue, daily boosters, collections, a
 
 ## Project status
 
-Product/domain design v0 is documented. The TypeScript bootstrap connects to Discord and supports graceful shutdown; gameplay commands are not implemented yet.
+Product/domain design v0 is documented. The bot supports admin card catalogue commands and graceful shutdown; gameplay commands are not implemented yet.
 
 ## Architecture v0
 
@@ -40,7 +40,7 @@ Use Node.js 24 LTS and its bundled npm.
 2. Copy `.env.example` to `.env` and set your Discord token/guild ID, database URL, and S3 endpoint, credentials, and bucket.
 3. Run `npm run dev`. Stop with Ctrl+C; SIGTERM is also supported for process managers.
 
-The bootstrap validates the environment and reads `config/game.yaml` once before connecting to Discord. Run launch commands from the repository root so the game file can be found. Database and S3 settings are required and validated, but their adapters are not connected yet. `S3_REGION` defaults to `us-east-1`; `S3_FORCE_PATH_STYLE` accepts `true` or `false` and defaults to `true` for the S3-compatible endpoint.
+The bootstrap validates the environment and reads `config/game.yaml` once before connecting to Discord. Run launch commands from the repository root so the game file can be found. Database and S3 adapters serve the admin commands; run migrations and provision the bucket before using them. `S3_REGION` defaults to `us-east-1`; `S3_FORCE_PATH_STYLE` accepts `true` or `false` and defaults to `true` for the S3-compatible endpoint.
 
 Balancing remains in `config/game.yaml`: timezone, positive integer daily quota, booster slots, rarity tables, and admin IDs. Tables contain percentages totaling 100 (with a small floating-point tolerance), using only COMMON, UNCOMMON, RARE, EPIC, and LEGENDARY; omitted rarities have zero probability. Every slot must reference an existing table. Quote Discord admin IDs to keep them strings; role IDs are validated but role authorization remains reserved for later. Invalid configuration stops startup with field-specific errors. `loadConfiguration` exposes typed environment and game settings to application code.
 
@@ -50,7 +50,7 @@ For compiled execution, run `npm run build` then `npm start`. Both launch script
 
 ## Card asset storage
 
-`AssetStorage` in `src/storage/asset-storage.ts` exposes `put(assetKey, bytes, contentType)`, `get(assetKey)`, and `delete(assetKey)`. `S3AssetStorage` uses only the AWS SDK's standard S3 object operations. Construct it with the existing startup-validated `configuration.environment`; it uses all existing `S3_*` settings without rereading configuration. Call `destroy()` when its owner shuts down. The Discord bootstrap does not instantiate storage until a command needs it.
+`AssetStorage` in `src/storage/asset-storage.ts` exposes `put(assetKey, bytes, contentType)`, `get(assetKey)`, and `delete(assetKey)`. `S3AssetStorage` uses only the AWS SDK's standard S3 object operations. Construct it with the existing startup-validated `configuration.environment`; it uses all existing `S3_*` settings without rereading configuration. The bootstrap instantiates it for the catalogue service and closes it together with the database pool on shutdown.
 
 Asset keys such as `cards/charles/legendary-v1.webp` are passed through unchanged in the configured shared bucket. No environment prefix, public URL, ACL, bucket creation, or provider-specific API is involved. `put` uploads bytes with their supplied content type and replaces the current image at that key. Development and production therefore see the same replacement. `get` fully consumes the response into a Node.js `Buffer` suitable for Discord attachments; buffering one image in memory keeps the interface simple, while streaming and upload size/type validation are left for future callers. `delete` delegates directly to S3, including its behavior for missing objects and versioned buckets.
 
@@ -67,3 +67,18 @@ The v0 Drizzle schema is in `src/db/schema/index.ts`; generated SQL and migratio
 Migrations are explicit and are not run on bot startup. Drizzle records applied migrations, so rerunning `db:migrate` applies only new migrations. Foreign keys use PostgreSQL's non-cascading `NO ACTION` default. Status, rarity, source, and side values use text with check constraints; balancing changes do not require migrations. Application updates must set `cards.updated_at` when changing a card; its database default only supplies the creation timestamp.
 
 `npm test` migrates a fresh in-memory PostgreSQL database, checks repeat migration execution, and exercises constraints and indexes. These tests verify schema behavior, not network connectivity or concurrent transactions on a PostgreSQL server. Booster/trade services and their transactional locking remain for their respective issues.
+
+## Admin card catalogue
+
+Startup registers `/admin card` in `DISCORD_GUILD_ID` (the bot installation needs the `applications.commands` scope). Only exact string IDs in `admin.user_ids` can execute these operations, including reads. `role_ids` grants no access. Other guilds are ignored, and replies are ephemeral.
+
+- `create name rarity image`: upload an image and create an enabled card. Duplicate names are allowed; UUIDs identify cards.
+- `edit id [name] [rarity]`: change at least one metadata field.
+- `show id`: display the full record and attach its image from private S3 storage.
+- `list [page]`: show ten cards per page, including disabled cards, sorted by name then UUID.
+- `enable id` / `disable id`: change future booster eligibility while preserving ownership and trade references.
+- `replace-image id image`: overwrite the existing shared asset key. This can affect both environments immediately.
+
+Names must contain 1–100 characters after trimming. Image attachments must declare PNG, JPEG, WebP, or GIF and contain at most 8 MiB; the service checks the downloaded byte count too. Images are buffered without transcoding. Successful mutations log the actor, operation, and card UUID. No card-delete command is exposed.
+
+New uploads use `cards/<uuid>` keys. S3 and PostgreSQL do not share a transaction: if upload succeeds but the database write fails, creation can leave an unused object, or replacement can succeed without updating `updated_at`. Check the record and storage before retrying; automatic deletion could remove an object referenced by a write whose outcome was uncertain. Concurrent image replacements follow S3's last successful write behavior. No new schema or dependencies are needed.
