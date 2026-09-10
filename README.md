@@ -4,7 +4,7 @@ Discord TCG built around a shared card catalogue, daily boosters, collections, a
 
 ## Project status
 
-Product/domain design v0 is documented and the repository now contains a Codex-ready implementation backlog.
+Product/domain design v0 is documented. The TypeScript bootstrap connects to Discord and supports graceful shutdown; gameplay commands are not implemented yet.
 
 ## Architecture v0
 
@@ -31,3 +31,17 @@ Product/domain design v0 is documented and the repository now contains a Codex-r
 ## Implementation
 
 Work should be implemented issue by issue from the GitHub backlog. Start with issue #1 and preserve the architectural/domain constraints in the documentation.
+
+## Local development
+
+Use Node.js 24 LTS and its bundled npm.
+
+1. Run `npm install` (or `npm ci` for a reproducible lockfile install).
+2. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` and `DISCORD_GUILD_ID` for your development bot/guild.
+3. Run `npm run dev`. Stop with Ctrl+C; SIGTERM is also supported for process managers.
+
+The bootstrap validates its environment before connecting to Discord. It registers no commands or interaction handlers. Database and S3 settings are placeholders for later adapters and are not used yet. Game configuration loading/validation will be added with gameplay configuration support; balancing remains in `config/game.yaml`.
+
+Run `npm run typecheck`, `npm test`, and `npm run lint` before submitting changes. Tests use a fake Discord client and need no credentials, database, or object store. Use `npm run format` to format source and tooling files.
+
+For compiled execution, run `npm run build` then `npm start`. Both launch scripts load an optional local `.env`; deployment can supply environment variables directly. A failed startup exits with a nonzero status. Deployment files are deferred to the deployment issue.
