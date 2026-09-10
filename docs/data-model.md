@@ -179,6 +179,12 @@ The intended approach is:
 
 If any step fails, the entire transaction rolls back.
 
+### Administrative daily reset
+
+`/admin player reset-daily` is an explicit exception that clears quota history for testing or correction. In one transaction, lock the selected player's row, compute the current configured calendar day after the lock, clear `card_instances.booster_opening_id` links to that player's openings in `[local midnight, next local midnight)`, then delete only those `booster_openings` rows. Links must be cleared even for copies already transferred to another player. Preserve all card instances, current owners, `obtained_at`, and `obtained_source`. Other players' opening history and other days are unaffected. An unknown player is a no-op and is not created.
+
+This deliberately discards the selected day's opening history and the corresponding provenance links rather than introducing a quota counter or altering historical timestamps. Log the actor, target, local day, and number of deleted openings after commit. Failures roll back both link updates and history deletion. Give/remove operations also lock the target player; removal locks and validates enough matching instances before deleting any, and grants use `obtained_source = 'ADMIN'` with no opening link.
+
 ## Trade-completion transaction
 
 Pending trades do not reserve card instances.

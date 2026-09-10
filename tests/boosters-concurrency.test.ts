@@ -6,12 +6,18 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { loadGameConfiguration } from "../src/config/game.js";
 import { DrizzleBoosterRepository } from "../src/db/repositories/boosters.js";
+import { DrizzleMaintenanceRepository } from "../src/db/repositories/maintenance.js";
 import {
   boosterOpenings,
   cardInstances,
   cards,
   players,
 } from "../src/db/schema/index.js";
+import { createAdminGuard } from "../src/domain/administration/admin-guard.js";
+import {
+  InsufficientCopiesError,
+  MaintenanceService,
+} from "../src/domain/administration/maintenance-service.js";
 import {
   BoosterQuotaError,
   BoosterService,
@@ -45,6 +51,11 @@ describe.skipIf(!connectionString)(
       () => 0,
     );
     const user = "987654321098765432";
+    const maintenance = new MaintenanceService(
+      new DrizzleMaintenanceRepository(db),
+      config,
+      createAdminGuard({ user_ids: [user], role_ids: [] }),
+    );
 
     beforeAll(async () => {
       await admin.query(`CREATE DATABASE "${database}"`);
@@ -101,6 +112,85 @@ describe.skipIf(!connectionString)(
         Array.from({ length: 8 }, () => service.open(user)),
       );
       await assertResults(attempts, config.boosters.daily_limit);
+    }, 20_000);
+
+    it("serializes competing removals so only one can consume the available copies", async () => {
+      const opening = await service.open(user);
+      const card = opening.cards[0];
+      if (!card) throw new Error("Missing card");
+      const attempts = await Promise.allSettled(
+        Array.from({ length: 2 }, () =>
+          maintenance.execute(user, {
+            operation: "remove-card",
+            targetUserId: user,
+            cardId: card.id,
+            quantity: 3,
+          }),
+        ),
+      );
+      expect(
+        attempts.filter((result) => result.status === "fulfilled"),
+      ).toHaveLength(1);
+      const failure = attempts.find((result) => result.status === "rejected");
+      expect(failure?.reason).toBeInstanceOf(InsufficientCopiesError);
+      expect(await db.select().from(cardInstances)).toHaveLength(2);
+    }, 20_000);
+
+    it("blocks reset and removal on the same player row used by booster openings", async () => {
+      const opening = await service.open(user);
+      const card = opening.cards[0];
+      if (!card) throw new Error("Missing card");
+      const holder = await pool.connect();
+      let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+      try {
+        await holder.query("BEGIN");
+        await holder.query(
+          "SELECT id FROM players WHERE discord_user_id = $1 FOR UPDATE",
+          [user],
+        );
+        pending = Promise.allSettled([
+          maintenance.execute(user, {
+            operation: "reset-daily",
+            targetUserId: user,
+          }),
+          maintenance.execute(user, {
+            operation: "remove-card",
+            targetUserId: user,
+            cardId: card.id,
+            quantity: 2,
+          }),
+        ]);
+        const deadline = Date.now() + 5000;
+        let waiting = 0;
+        while (Date.now() < deadline) {
+          const result = await pool.query<{ count: string }>(
+            "SELECT count(*) FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'",
+            [database],
+          );
+          waiting = Number(result.rows[0]?.count);
+          if (waiting === 2) break;
+          await setTimeout(20);
+        }
+        expect(
+          waiting,
+          "both admin mutations must wait for the player-row lock",
+        ).toBe(2);
+        await holder.query("COMMIT");
+        expect(
+          (await pending).every((result) => result.status === "fulfilled"),
+        ).toBe(true);
+        expect(await db.select().from(boosterOpenings)).toEqual([]);
+        const copies = await db.select().from(cardInstances);
+        expect(copies).toHaveLength(3);
+        expect(copies.every((copy) => copy.boosterOpeningId === null)).toBe(
+          true,
+        );
+        expect((await service.open(user)).status.used).toBe(1);
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+        await pending;
+      }
     }, 20_000);
 
     it("blocks competing opens on the player row and permits only the last remaining opening", async () => {
