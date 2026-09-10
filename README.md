@@ -44,6 +44,18 @@ The bootstrap validates the environment and reads `config/game.yaml` once before
 
 Balancing remains in `config/game.yaml`: timezone, positive integer daily quota, booster slots, rarity tables, and admin IDs. Tables contain percentages totaling 100 (with a small floating-point tolerance), using only COMMON, UNCOMMON, RARE, EPIC, and LEGENDARY; omitted rarities have zero probability. Every slot must reference an existing table. Quote Discord admin IDs to keep them strings; role IDs are validated but role authorization remains reserved for later. Invalid configuration stops startup with field-specific errors. `loadConfiguration` exposes typed environment and game settings to application code.
 
-Run `npm run typecheck`, `npm test`, and `npm run lint` before submitting changes. Tests use a fake Discord client and need no credentials, database, or object store. Use `npm run format` to format source and tooling files.
+Run `npm run typecheck`, `npm test`, and `npm run lint` before submitting changes. Tests use a fake Discord client and an in-memory PGlite PostgreSQL build for migration/constraint verification; they need no credentials, external database, or object store. Use `npm run format` to format source and tooling files.
 
 For compiled execution, run `npm run build` then `npm start`. Both launch scripts load an optional local `.env`; deployment can supply environment variables directly. A failed startup exits with a nonzero status. Deployment files are deferred to the deployment issue.
+
+## Database migrations
+
+The v0 Drizzle schema is in `src/db/schema/index.ts`; generated SQL and migration metadata are versioned in `src/db/migrations`.
+
+1. Create an empty PostgreSQL database and set `DATABASE_URL` in `.env` or the environment. Use separate databases for development and production.
+2. From the repository root, run `npm run db:migrate`. Only database configuration is needed; Discord and S3 credentials are not required. Install development dependencies for this TypeScript tooling command.
+3. After changing the schema, run `npm run db:generate -- --name=describe_change`, review the generated SQL, and commit the SQL and metadata together. Generation requires no database connection.
+
+Migrations are explicit and are not run on bot startup. Drizzle records applied migrations, so rerunning `db:migrate` applies only new migrations. Foreign keys use PostgreSQL's non-cascading `NO ACTION` default. Status, rarity, source, and side values use text with check constraints; balancing changes do not require migrations. Application updates must set `cards.updated_at` when changing a card; its database default only supplies the creation timestamp.
+
+`npm test` migrates a fresh in-memory PostgreSQL database, checks repeat migration execution, and exercises constraints and indexes. These tests verify schema behavior, not network connectivity or concurrent transactions on a PostgreSQL server. Booster/trade services and their transactional locking remain for their respective issues.
