@@ -5,15 +5,23 @@ import { ConfigurationError } from "./config/error.js";
 import { loadConfiguration } from "./config/index.js";
 import { DrizzleBoosterRepository } from "./db/repositories/boosters.js";
 import { DrizzleCardRepository } from "./db/repositories/cards.js";
+import { DrizzleCollectionRepository } from "./db/repositories/collections.js";
 import { startApplication } from "./discord/application.js";
 import {
   adminCardCommand,
   handleAdminCard,
 } from "./discord/commands/admin-card.js";
 import { boosterCommand, handleBooster } from "./discord/commands/booster.js";
+import {
+  cardCommand,
+  collectionCommand,
+  handleCollectionButton,
+  handleCollectionCommand,
+} from "./discord/commands/collection.js";
 import { createAdminGuard } from "./domain/administration/admin-guard.js";
 import { BoosterService } from "./domain/boosters/booster-service.js";
 import { CardService } from "./domain/cards/card-service.js";
+import { CollectionService } from "./domain/collections/collection-service.js";
 import { S3AssetStorage } from "./storage/s3-asset-storage.js";
 
 async function main() {
@@ -29,8 +37,17 @@ async function main() {
     createAdminGuard(game.admin),
   );
   const boosters = new BoosterService(new DrizzleBoosterRepository(db), game);
+  const collections = new CollectionService(
+    new DrizzleCollectionRepository(db),
+  );
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isChatInputCommand()) {
+      void handleCollectionCommand(
+        interaction,
+        environment.DISCORD_GUILD_ID,
+        collections,
+        storage,
+      ).catch(() => console.error("Discord collection response failed."));
       void handleAdminCard(
         interaction,
         environment.DISCORD_GUILD_ID,
@@ -42,6 +59,16 @@ async function main() {
         boosters,
         storage,
       ).catch(() => console.error("Discord booster response failed."));
+    }
+    if (interaction.isButton()) {
+      void handleCollectionButton(
+        interaction,
+        environment.DISCORD_GUILD_ID,
+        collections,
+        storage,
+      ).catch(() =>
+        console.error("Discord collection component response failed."),
+      );
     }
   });
   client.once(Events.ClientReady, () => {
@@ -73,6 +100,14 @@ async function main() {
     );
     await client.application.commands.create(
       boosterCommand(),
+      environment.DISCORD_GUILD_ID,
+    );
+    await client.application.commands.create(
+      collectionCommand(),
+      environment.DISCORD_GUILD_ID,
+    );
+    await client.application.commands.create(
+      cardCommand(),
       environment.DISCORD_GUILD_ID,
     );
   } catch (error) {

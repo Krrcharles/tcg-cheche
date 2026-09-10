@@ -4,7 +4,7 @@ Discord TCG built around a shared card catalogue, daily boosters, collections, a
 
 ## Project status
 
-Product/domain design v0 is documented. The bot supports admin card catalogue commands, daily boosters, and graceful shutdown. Collections and trades remain for later issues.
+Product/domain design v0 is documented. The bot supports admin card catalogue commands, daily boosters, collection browsing, card details, and graceful shutdown. Trades remain for a later issue.
 
 ## Architecture v0
 
@@ -79,6 +79,14 @@ Each status/open lazily creates the player and locks that player's row in a Post
 Discord/S3 delivery happens after commit. A missing image leaves the saved card's text visible; a rejected reveal falls back to the saved card list. If Discord is unavailable entirely, the opening still exists and consumes quota: check status before retrying. Failed celebratory announcements are logged without overwriting a successful reveal. Images are buffered without resizing, as in the catalogue commands.
 
 Run the server concurrency tests against a disposable PostgreSQL server by setting `TEST_DATABASE_URL` and running `npm test -- tests/boosters-concurrency.test.ts`. They use independent pooled connections and create, migrate, and remove a uniquely named database; the connection user needs `CREATEDB` permission. Tests cover simultaneous first-player creation and competing opens blocked on a held player row with one opening remaining. These tests are skipped when the variable is absent. The default suite requires no external services and covers deterministic rolls, quota/day/DST boundaries, rollback after an injected insert failure, and Discord presentation/failure paths.
+
+## Collections and card details
+
+`/collection [player]` opens a public list of the selected player's collection (your own by default), showing distinct cards, owned quantities, collection completion, and total copies. Buttons switch between list and gallery, move between pages, and sort by rarity descending (default), name ascending, or quantity descending. Both views show ten distinct cards per page; switching views preserves the page and sort, while changing sort returns to page one. Name and card UUID break sorting ties. Only the person who opened the view can use its controls; other players can open their own view.
+
+`/card id [player]` shows a card's name, rarity, image, and owned quantity, including zero copies. Copy a UUID from a collection or booster. Gallery/detail images are retrieved through the private storage adapter and attached to Discord. Missing images leave the card text readable. These commands are available to normal players in the configured guild.
+
+Completion counts all catalogue cards, including disabled ones, because disabling only changes future booster eligibility. Browsing does not create players or mutate ownership. A single PostgreSQL statement aggregates the selected player's copies alongside the catalogue, giving each collection read a consistent snapshot. Sorting and pagination happen in the Discord-independent service over that small catalogue; each button refreshes the data and clamps pages if the collection has shrunk. No schema changes, cache, or persistent UI sessions are needed. As with booster reveals, images are buffered without resizing; live Discord upload limits still apply.
 
 ## Admin card catalogue
 
