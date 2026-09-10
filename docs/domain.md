@@ -327,11 +327,48 @@ Discord IDs are treated as configuration, not secrets.
 
 All administrative commands must use one centralized authorization guard/service. User IDs must never be hard-coded directly inside individual command handlers.
 
-Typical admin-only operations may include catalogue management such as creating a card record, enabling/disabling a card, replacing an image, or listing catalogue entries.
-
 Regular gameplay commands such as booster opening, collection browsing, card inspection, and trading remain available to normal players.
 
 `role_ids` is reserved for a potential future role-based authorization mechanism. Role-based administration is not required in v0.
+
+### Admin command surface v0
+
+Catalogue operations:
+
+```text
+/admin card create
+/admin card edit
+/admin card show
+/admin card list
+/admin card enable
+/admin card disable
+/admin card replace-image
+```
+
+`edit` covers mutable card metadata such as name and rarity. `show` displays the complete card record as understood by the application, including ID, name, rarity, asset key, enabled state, and image.
+
+Physical card deletion is intentionally not exposed in v0. Disabling a card removes it from future booster rolls while preserving existing ownership and historical references.
+
+Player maintenance/testing operations:
+
+```text
+/admin player show
+/admin player give-card
+/admin player remove-card
+/admin player reset-daily
+```
+
+`show` exposes useful player state such as collection size, today's booster usage, and pending trades. `give-card` and `remove-card` operate on card plus quantity rather than card-instance IDs. `reset-daily` exists primarily to support testing and exceptional correction.
+
+Booster/testing operations:
+
+```text
+/admin booster simulate [count]
+```
+
+Simulation performs booster rolls without creating `BoosterOpening` or `CardInstance` records and reports aggregate outcomes. Its purpose is to inspect balancing/probability behavior safely.
+
+Administrative mutations such as giving/removing cards should be observable in application logs. A more complete persistent audit trail can be introduced later if a concrete need appears.
 
 ## Current invariants
 
@@ -348,3 +385,4 @@ Regular gameplay commands such as booster opening, collection browsing, card ins
 - pending trades do not reserve card instances
 - trade completion revalidates current ownership and transfers all required cards atomically or transfers none
 - administrative authorization is centralized and driven by configured Discord user IDs
+- card deletion is not an admin capability in v0; disabling preserves historical/ownership integrity
