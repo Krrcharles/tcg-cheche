@@ -1,9 +1,10 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
-import { loadEnvironment } from "./config/env.js";
+import { ConfigurationError } from "./config/error.js";
+import { loadConfiguration } from "./config/index.js";
 import { startApplication } from "./discord/application.js";
 
 async function main() {
-  const environment = loadEnvironment();
+  const { environment } = loadConfiguration();
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   client.once(Events.ClientReady, () => {
     console.info(`TCG Cheche ready for guild ${environment.DISCORD_GUILD_ID}.`);
@@ -16,8 +17,7 @@ async function main() {
 
 void main().catch((error: unknown) => {
   console.error(
-    error instanceof Error &&
-      error.message.startsWith("Invalid environment configuration:")
+    error instanceof ConfigurationError
       ? error.message
       : "Application startup failed. Check Discord credentials and connectivity.",
   );

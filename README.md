@@ -37,10 +37,12 @@ Work should be implemented issue by issue from the GitHub backlog. Start with is
 Use Node.js 24 LTS and its bundled npm.
 
 1. Run `npm install` (or `npm ci` for a reproducible lockfile install).
-2. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` and `DISCORD_GUILD_ID` for your development bot/guild.
+2. Copy `.env.example` to `.env` and set your Discord token/guild ID, database URL, and S3 endpoint, credentials, and bucket.
 3. Run `npm run dev`. Stop with Ctrl+C; SIGTERM is also supported for process managers.
 
-The bootstrap validates its environment before connecting to Discord. It registers no commands or interaction handlers. Database and S3 settings are placeholders for later adapters and are not used yet. Game configuration loading/validation will be added with gameplay configuration support; balancing remains in `config/game.yaml`.
+The bootstrap validates the environment and reads `config/game.yaml` once before connecting to Discord. Run launch commands from the repository root so the game file can be found. Database and S3 settings are required and validated, but their adapters are not connected yet. `S3_REGION` defaults to `us-east-1`; `S3_FORCE_PATH_STYLE` accepts `true` or `false` and defaults to `true` for the S3-compatible endpoint.
+
+Balancing remains in `config/game.yaml`: timezone, positive integer daily quota, booster slots, rarity tables, and admin IDs. Tables contain percentages totaling 100 (with a small floating-point tolerance), using only COMMON, UNCOMMON, RARE, EPIC, and LEGENDARY; omitted rarities have zero probability. Every slot must reference an existing table. Quote Discord admin IDs to keep them strings; role IDs are validated but role authorization remains reserved for later. Invalid configuration stops startup with field-specific errors. `loadConfiguration` exposes typed environment and game settings to application code.
 
 Run `npm run typecheck`, `npm test`, and `npm run lint` before submitting changes. Tests use a fake Discord client and need no credentials, database, or object store. Use `npm run format` to format source and tooling files.
 
