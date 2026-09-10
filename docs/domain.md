@@ -79,6 +79,29 @@ Each slot references a configurable rarity distribution.
 
 This allows booster composition and rarity probabilities to evolve without changing the core opening algorithm.
 
+## Daily booster quota
+
+The initial rule is 3 booster openings per player per calendar day.
+
+The game day resets at midnight in the timezone configured in `config/game.yaml`, initially `Europe/Paris`.
+
+The quota is a balancing value and must come from game configuration rather than application code.
+
+The application stores successful booster openings instead of maintaining a mutable `boosters_remaining` counter.
+
+Conceptually:
+
+```text
+BoosterOpening
+- id
+- player_id
+- opened_at
+```
+
+The number of openings for the current local game day determines whether another opening is allowed.
+
+Quota validation and creation of the opening/card instances must be concurrency-safe and atomic so simultaneous Discord interactions cannot exceed the daily limit.
+
 ## Duplicate rules
 
 Duplicates are allowed inside the same booster.
@@ -97,7 +120,7 @@ Unless a future product decision introduces per-card weights, all enabled cards 
 
 Exact rarity probabilities are not decided yet.
 
-They should live in versioned application configuration rather than being embedded throughout business logic or requiring database migrations.
+They should live in the versioned `config/game.yaml` rather than being embedded throughout business logic or requiring database migrations.
 
 Conceptually:
 
@@ -117,11 +140,26 @@ rare_or_better:
 
 The configuration format should support adding new booster definitions or slot distributions later without rewriting the booster engine.
 
+## Discord booster presentation
+
+The v0 Discord experience is intentionally simple.
+
+When a booster is opened successfully, all 5 resulting cards are revealed at once. The response should include their images and enough textual information to identify them.
+
+If the booster contains one or more LEGENDARY cards, the bot emits an additional celebratory announcement identifying the player and the legendary card(s).
+
+The Discord presentation must remain separate from the booster/domain logic. The domain returns the opening result; a Discord presenter decides how to render it.
+
+This keeps future presentation changes possible without changing booster rules, including progressive reveals, buttons, animations, richer embeds, or different rarity-specific effects.
+
 ## Current invariants
 
 - a standard booster contains exactly 5 card instances
 - a standard booster guarantees at least one RARE-or-better card
+- the initial daily quota is 3 boosters per player
+- the game day uses a configured timezone, initially Europe/Paris
 - duplicates within a booster are allowed
 - card supply is unlimited
 - disabled cards are not eligible for new booster rolls
 - opening a booster must create all resulting card instances atomically or none of them
+- booster/domain logic must not depend on a specific Discord rendering strategy
