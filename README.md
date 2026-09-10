@@ -4,7 +4,7 @@ Discord TCG built around a shared card catalogue, daily boosters, collections, a
 
 ## Project status
 
-Product/domain design v0 is documented. The bot supports admin card catalogue commands and graceful shutdown; gameplay commands are not implemented yet.
+Product/domain design v0 is documented. The bot supports admin card catalogue commands, daily boosters, and graceful shutdown. Collections and trades remain for later issues.
 
 ## Architecture v0
 
@@ -66,7 +66,19 @@ The v0 Drizzle schema is in `src/db/schema/index.ts`; generated SQL and migratio
 
 Migrations are explicit and are not run on bot startup. Drizzle records applied migrations, so rerunning `db:migrate` applies only new migrations. Foreign keys use PostgreSQL's non-cascading `NO ACTION` default. Status, rarity, source, and side values use text with check constraints; balancing changes do not require migrations. Application updates must set `cards.updated_at` when changing a card; its database default only supplies the creation timestamp.
 
-`npm test` migrates a fresh in-memory PostgreSQL database, checks repeat migration execution, and exercises constraints and indexes. These tests verify schema behavior, not network connectivity or concurrent transactions on a PostgreSQL server. Booster/trade services and their transactional locking remain for their respective issues.
+`npm test` migrates a fresh in-memory PostgreSQL database, checks repeat migration execution, and exercises constraints, indexes, and booster transactions. PGlite serializes transactions; the separate real-server concurrency tests below verify booster row locking. Trade transactions remain for their issue.
+
+## Daily boosters
+
+Startup registers `/booster status` and `/booster open` in the configured guild. Normal players can use both. Discord makes a base command unusable when it has subcommands, so status uses the explicit `/booster status` form instead of bare `/booster` ([Discord documentation](https://docs.discord.com/developers/interactions/application-commands#subcommands-and-subcommand-groups)). Status is ephemeral; openings publicly reveal all five cards together, with names, rarities, IDs, and private S3 images attached. An additional public follow-up names the player and every legendary pulled, including duplicates, without sending mention notifications.
+
+The engine reads slot definitions and rarity weights from the startup-loaded game configuration. Enabled cards within each rarity have equal chances; duplicates and unlimited supply are supported. Every positive-weight rarity used by a booster must have an enabled card. An incomplete catalogue rejects the opening without consuming quota rather than silently changing the odds. The checked-in standard booster uses four `normal` slots and a final `rare_plus` slot; the engine also supports other configured definitions without special-case rolling rules.
+
+Each status/open lazily creates the player and locks that player's row in a PostgreSQL transaction at READ COMMITTED isolation. Opening reads the clock after acquiring the lock, checks the successful-opening count, rolls, and inserts the opening and all instances in that same transaction. Failed writes roll back completely. Calendar dates are derived in the configured timezone in the application; PostgreSQL converts both local midnights independently into UTC bounds for the indexed `[start, end)` count. This handles 23- and 25-hour daylight-saving days without a new timezone dependency.
+
+Discord/S3 delivery happens after commit. A missing image leaves the saved card's text visible; a rejected reveal falls back to the saved card list. If Discord is unavailable entirely, the opening still exists and consumes quota: check status before retrying. Failed celebratory announcements are logged without overwriting a successful reveal. Images are buffered without resizing, as in the catalogue commands.
+
+Run the server concurrency tests against a disposable PostgreSQL server by setting `TEST_DATABASE_URL` and running `npm test -- tests/boosters-concurrency.test.ts`. They use independent pooled connections and create, migrate, and remove a uniquely named database; the connection user needs `CREATEDB` permission. Tests cover simultaneous first-player creation and competing opens blocked on a held player row with one opening remaining. These tests are skipped when the variable is absent. The default suite requires no external services and covers deterministic rolls, quota/day/DST boundaries, rollback after an injected insert failure, and Discord presentation/failure paths.
 
 ## Admin card catalogue
 
