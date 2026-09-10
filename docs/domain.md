@@ -152,6 +152,78 @@ The Discord presentation must remain separate from the booster/domain logic. The
 
 This keeps future presentation changes possible without changing booster rules, including progressive reveals, buttons, animations, richer embeds, or different rarity-specific effects.
 
+## Collection
+
+The collection experience has two complementary presentations over the same collection data.
+
+### List view
+
+`/collection` opens the list view by default. A target player may also be supported, for example `/collection @player`.
+
+The list view is the reference functional view: compact, textual, practical, sortable, and paginated.
+
+Each distinct card is aggregated rather than listing individual owned instances.
+
+A row contains at least:
+
+```text
+card name | rarity | owned quantity
+```
+
+The header should expose both collection completion and total owned copies when possible, for example:
+
+```text
+42 / 87 cards collected · 116 total copies
+```
+
+Initial sorting options:
+
+- rarity, highest to lowest (default)
+- name, alphabetical
+- quantity, highest to lowest
+
+Pagination is handled through Discord components rather than requiring repeated slash commands.
+
+### Gallery view
+
+The player can switch from the list view to a visual gallery from the same interaction.
+
+The gallery displays card images in paginated groups, initially up to 10 distinct cards per page to fit Discord media-gallery capabilities.
+
+The gallery uses the same collection query, sorting state, and pagination semantics as the list view. It is a presentation mode, not a separate domain concept.
+
+The player can switch back to the list view without issuing a new command.
+
+### Card detail
+
+A card can be inspected individually through a command such as `/card`.
+
+The detail view should show at least:
+
+- card name
+- rarity
+- full card image
+- number of copies owned by the requesting/selected player
+
+This view may later become an entry point for additional actions such as trading, but no such coupling is required in v0.
+
+### Presentation boundary
+
+Collection/domain services return Discord-agnostic data such as:
+
+```text
+CollectionEntry
+- card_id
+- name
+- rarity
+- owned_count
+- asset_key
+```
+
+Discord-specific list, gallery, navigation, and detail rendering belong in presenters/components outside the domain layer.
+
+This is intentional so the collection UX can become richer later without changing collection ownership rules or persistence.
+
 ## Current invariants
 
 - a standard booster contains exactly 5 card instances
@@ -163,3 +235,4 @@ This keeps future presentation changes possible without changing booster rules, 
 - disabled cards are not eligible for new booster rolls
 - opening a booster must create all resulting card instances atomically or none of them
 - booster/domain logic must not depend on a specific Discord rendering strategy
+- collection list and gallery views are presentations over the same aggregated collection data
