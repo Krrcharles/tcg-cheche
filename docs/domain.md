@@ -224,6 +224,92 @@ Discord-specific list, gallery, navigation, and detail rendering belong in prese
 
 This is intentional so the collection UX can become richer later without changing collection ownership rules or persistence.
 
+## Trading
+
+Trading is bilateral and card-only. There is no currency involved.
+
+A trade has one proposer and one recipient, and may contain any number of card quantities on either side.
+
+```text
+Trade
+- id
+- proposer_player_id
+- recipient_player_id
+- status
+- created_at
+- completed_at
+
+TradeItem
+- trade_id
+- side
+- card_id
+- quantity
+```
+
+`side` identifies whether the item belongs to the proposer side or recipient side of the exchange.
+
+### Trade states
+
+Initial states:
+
+- `PENDING`
+- `COMPLETED`
+- `REJECTED`
+- `CANCELLED`
+
+A pending trade can be accepted or rejected by the recipient and cancelled by the proposer.
+
+Counter-offers and in-place trade editing are out of scope for v0. To change an offer, the existing trade is cancelled and a new one is created.
+
+Trades do not expire automatically in v0.
+
+### Quantities instead of card-instance IDs
+
+Card instances are indistinguishable in v0: there are no serials, foils, editions, or per-instance properties that affect value.
+
+Discord therefore presents trades in terms of card and quantity rather than internal instance IDs.
+
+Example:
+
+```text
+Charles gives:
+- Kevin au Buffalo Grill x2
+- Thomas Crocs x1
+
+Paul gives:
+- Michel Piscine x1
+```
+
+At completion, the application may transfer any owned instances matching the requested card IDs and quantities.
+
+### No reservation while pending
+
+Creating a trade validates that the proposer currently owns the cards being offered, but does not reserve or lock those card instances.
+
+The same cards may therefore become unavailable before the trade is accepted, for example because they were used in another completed trade.
+
+This is accepted behavior.
+
+### Acceptance and atomicity
+
+When the recipient accepts a trade, the application must revalidate all quantities on both sides against current ownership.
+
+If either player no longer owns the required quantities, the trade does not complete and no ownership changes occur.
+
+If validation succeeds, all required card-instance ownership transfers and the transition to `COMPLETED` occur atomically in one PostgreSQL transaction.
+
+The fundamental invariant is:
+
+> A trade transfers nothing before acceptance. On acceptance, all required ownership is revalidated and either the entire exchange succeeds atomically or nothing changes.
+
+### Discord presentation
+
+Trade creation should be interactive and presentation-specific. A slash command such as `/trade @player` may open a builder allowing the proposer to add cards from their own collection and requested cards from the recipient's collection before sending the proposal.
+
+Once sent, the pending trade is displayed with its two sides and Discord actions such as accept, reject, and cancel.
+
+Exact picker/component UX is intentionally not a domain rule and may evolve independently.
+
 ## Current invariants
 
 - a standard booster contains exactly 5 card instances
@@ -236,3 +322,5 @@ This is intentional so the collection UX can become richer later without changin
 - opening a booster must create all resulting card instances atomically or none of them
 - booster/domain logic must not depend on a specific Discord rendering strategy
 - collection list and gallery views are presentations over the same aggregated collection data
+- pending trades do not reserve card instances
+- trade completion revalidates current ownership and transfers all required cards atomically or transfers none
