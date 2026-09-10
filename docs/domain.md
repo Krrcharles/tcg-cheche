@@ -11,10 +11,13 @@ Minimal metadata required by the application:
 ```text
 Card
 - id
+- name
 - asset_key
 - rarity
 - enabled
 ```
+
+`name` is the human-readable display name used by Discord interactions such as drop announcements, collection views, and trades. It is not required to be unique; `id` remains the technical identity of the card.
 
 `asset_key` references the shared S3-compatible object storage.
 
