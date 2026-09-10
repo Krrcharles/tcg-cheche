@@ -1,0 +1,31 @@
+game:
+  timezone: Europe/Paris
+
+admin:
+  user_ids: []
+  role_ids: []
+
+boosters:
+  daily_limit: 3
+
+  definitions:
+    standard:
+      slots:
+        - normal
+        - normal
+        - normal
+        - normal
+        - rare_plus
+
+rarity_tables:
+  normal:
+    COMMON: 70
+    UNCOMMON: 22
+    RARE: 6
+    EPIC: 1.7
+    LEGENDARY: 0.3
+
+  rare_plus:
+    RARE: 85
+    EPIC: 13
+    LEGENDARY: 2
