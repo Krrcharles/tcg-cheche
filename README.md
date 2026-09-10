@@ -48,6 +48,14 @@ Run `npm run typecheck`, `npm test`, and `npm run lint` before submitting change
 
 For compiled execution, run `npm run build` then `npm start`. Both launch scripts load an optional local `.env`; deployment can supply environment variables directly. A failed startup exits with a nonzero status. Deployment files are deferred to the deployment issue.
 
+## Card asset storage
+
+`AssetStorage` in `src/storage/asset-storage.ts` exposes `put(assetKey, bytes, contentType)`, `get(assetKey)`, and `delete(assetKey)`. `S3AssetStorage` uses only the AWS SDK's standard S3 object operations. Construct it with the existing startup-validated `configuration.environment`; it uses all existing `S3_*` settings without rereading configuration. Call `destroy()` when its owner shuts down. The Discord bootstrap does not instantiate storage until a command needs it.
+
+Asset keys such as `cards/charles/legendary-v1.webp` are passed through unchanged in the configured shared bucket. No environment prefix, public URL, ACL, bucket creation, or provider-specific API is involved. `put` uploads bytes with their supplied content type and replaces the current image at that key. Development and production therefore see the same replacement. `get` fully consumes the response into a Node.js `Buffer` suitable for Discord attachments; buffering one image in memory keeps the interface simple, while streaming and upload size/type validation are left for future callers. `delete` delegates directly to S3, including its behavior for missing objects and versioned buckets.
+
+Failed requests, missing download bodies, and download-consumption failures reject with `AssetStorageError`, carrying `operation`, `assetKey`, and the original `cause`. A missing object is a failed read, not an empty image; provider errors such as `NoSuchKey` remain available through `cause`. The adapter does not log errors or credentials. Unit tests mock the SDK send boundary and cover configuration mapping, request construction, binary downloads, replacement, error handling, and client cleanup; live endpoint verification remains a deployment check.
+
 ## Database migrations
 
 The v0 Drizzle schema is in `src/db/schema/index.ts`; generated SQL and migration metadata are versioned in `src/db/migrations`.
