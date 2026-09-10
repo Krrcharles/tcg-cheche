@@ -20,13 +20,24 @@ OVH VPS
         └── bucket: tcg-assets
 ```
 
-The two bot containers run the same application image. Their behavior differs only through environment configuration.
+The two bot containers run the same application image. Their behavior differs through environment configuration and by which Discord application/guild they are attached to.
 
 ## Discord
 
 The bot connects outbound to Discord. The MVP does not require a public HTTP API, reverse proxy, TLS termination, or a domain name.
 
 Development and production use separate Discord applications/tokens.
+
+Architecture v0 intentionally assumes one bot instance serves one Discord guild:
+
+```text
+tcg-dev  -> development Discord guild -> tcg_dev database
+tcg-prod -> production Discord guild  -> tcg_prod database
+```
+
+The expected guild ID is environment configuration. An instance should reject or ignore interactions from another guild.
+
+Multi-guild support is out of scope for v0. If the product later needs one bot instance to serve multiple guilds, guild scoping will be introduced explicitly at that time rather than being carried as unused domain complexity now.
 
 ## PostgreSQL
 
@@ -41,23 +52,31 @@ This isolates migrations, test data, collections, booster openings, trades, and 
 
 PostgreSQL must not be exposed publicly from the VPS.
 
-## Guild isolation
+## Game configuration
 
-The application is multi-guild by design.
+Infrastructure/secrets and game balancing configuration are separate concerns.
 
-A Discord user participating in two Discord guilds is treated as two distinct players for gameplay purposes. Collections, booster quotas, trades, and other game state are scoped to a guild.
+Environment variables are reserved for deployment-specific configuration such as:
 
-Conceptually:
+- Discord token
+- expected Discord guild ID
+- PostgreSQL connection string
+- S3 endpoint
+- S3 credentials
+- runtime environment name
 
-```text
-guild
-└── player (guild_id + discord_user_id)
-    ├── collection
-    ├── booster openings
-    └── trades
-```
+Game rules that are expected to evolve through balancing live in a versioned configuration file, initially `config/game.yaml`.
 
-The card catalogue itself is global.
+Examples include:
+
+- game timezone
+- daily booster quota
+- booster composition
+- rarity probability tables
+
+The application must validate the complete game configuration at startup and fail fast on invalid configuration, for example unknown rarities, missing slot tables, or probability tables with invalid totals.
+
+Game rules must not be duplicated as magic constants throughout application code.
 
 ## Object storage
 
@@ -98,7 +117,8 @@ Redis can be introduced later if a concrete scaling or coordination requirement 
 
 ```text
 Git
-└── application code and configuration
+├── application code
+└── versioned game configuration
 
 PostgreSQL
 └── game/domain state
@@ -111,6 +131,7 @@ RustFS / S3
 
 - one Docker image for the application
 - separate dev/prod containers
+- one Discord guild per bot instance in v0
 - shared PostgreSQL process, separate databases
 - shared RustFS process and S3 bucket
 - persistent Docker volumes for PostgreSQL and RustFS
