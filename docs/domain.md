@@ -310,6 +310,29 @@ Once sent, the pending trade is displayed with its two sides and Discord actions
 
 Exact picker/component UX is intentionally not a domain rule and may evolve independently.
 
+## Administration
+
+Administrative access is controlled by a whitelist of Discord user IDs stored in the versioned `config/game.yaml`.
+
+Conceptually:
+
+```yaml
+admin:
+  user_ids:
+    - "123456789012345678"
+  role_ids: []
+```
+
+Discord IDs are treated as configuration, not secrets.
+
+All administrative commands must use one centralized authorization guard/service. User IDs must never be hard-coded directly inside individual command handlers.
+
+Typical admin-only operations may include catalogue management such as creating a card record, enabling/disabling a card, replacing an image, or listing catalogue entries.
+
+Regular gameplay commands such as booster opening, collection browsing, card inspection, and trading remain available to normal players.
+
+`role_ids` is reserved for a potential future role-based authorization mechanism. Role-based administration is not required in v0.
+
 ## Current invariants
 
 - a standard booster contains exactly 5 card instances
@@ -324,3 +347,4 @@ Exact picker/component UX is intentionally not a domain rule and may evolve inde
 - collection list and gallery views are presentations over the same aggregated collection data
 - pending trades do not reserve card instances
 - trade completion revalidates current ownership and transfers all required cards atomically or transfers none
+- administrative authorization is centralized and driven by configured Discord user IDs
