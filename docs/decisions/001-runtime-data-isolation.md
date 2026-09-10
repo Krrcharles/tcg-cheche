@@ -13,13 +13,22 @@ TCG Cheche will have at least two Discord environments:
 
 The application should remain inexpensive to run on a small VPS. Card images are catalogue assets and are expected to be identical regardless of environment.
 
-The application may later be installed on more than one Discord guild, so guild-level game isolation must also be defined independently from dev/prod isolation.
-
 ## Decision
 
 ### Application runtime
 
 Development and production run as separate containers using the same Docker image and different configuration/secrets.
+
+Architecture v0 assumes exactly one Discord guild per bot instance:
+
+```text
+tcg-dev  -> development Discord guild -> tcg_dev database
+tcg-prod -> production Discord guild  -> tcg_prod database
+```
+
+The expected Discord guild ID is runtime configuration. An instance should reject or ignore interactions from other guilds.
+
+Multi-guild support is explicitly out of scope for v0 and will be introduced only if a concrete product requirement appears.
 
 ### PostgreSQL
 
@@ -30,6 +39,8 @@ A single PostgreSQL server is shared by both environments, with two separate dat
 
 Environment-specific game state must never be shared between these databases.
 
+Because each runtime serves one Discord guild, gameplay entities do not carry an otherwise redundant `guild_id` in v0.
+
 ### S3-compatible storage
 
 A single RustFS server and a single bucket (`tcg-assets`) are shared by development and production.
@@ -38,25 +49,20 @@ Card assets are considered global catalogue data. A modification to an asset fro
 
 Application code must use standard S3-compatible operations and must not depend on RustFS-specific APIs.
 
-### Discord guild isolation
-
-Within either environment, gameplay state is scoped by Discord guild. The same Discord user in two guilds has separate collections, booster quotas, and trades.
-
-The card catalogue is global; ownership and gameplay state are guild-scoped.
-
 ## Consequences
 
 ### Positive
 
 - low infrastructure overhead on a small VPS
 - strong separation between development and production game state
+- simpler domain schema without unused guild scoping
 - no duplicated binary asset storage
 - a single application artifact can be promoted from development to production
 - future migration from RustFS to another S3-compatible service does not require domain changes
-- the bot can safely support multiple Discord guilds
 
 ### Accepted trade-offs
 
+- one runtime cannot safely serve multiple Discord guilds without a future schema/domain change
 - development can modify an asset that production also uses
 - PostgreSQL and RustFS remain single points of failure on the VPS
 - S3 data is not redundant merely because it is behind an object-storage API
