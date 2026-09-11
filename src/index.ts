@@ -18,6 +18,7 @@ import { boosterCommand, handleBooster } from "./discord/commands/booster.js";
 import {
   cardCommand,
   collectionCommand,
+  handleCardAutocomplete,
   handleCollectionButton,
   handleCollectionCommand,
 } from "./discord/commands/collection.js";
@@ -57,6 +58,15 @@ async function main() {
     collections,
   );
   client.on(Events.InteractionCreate, (interaction) => {
+    if (interaction.isAutocomplete()) {
+      void handleCardAutocomplete(
+        interaction,
+        environment.DISCORD_GUILD_ID,
+        collections,
+      ).catch(() =>
+        console.error("Discord card autocomplete response failed."),
+      );
+    }
     if (interaction.isChatInputCommand()) {
       void tradeHandlers
         .command(interaction)

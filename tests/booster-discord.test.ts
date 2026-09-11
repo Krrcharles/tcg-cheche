@@ -20,7 +20,7 @@ const status = {
   resetsAt: new Date("2026-09-10T22:00:00Z"),
 };
 const opening: BoosterOpening = {
-  id: "00000000-0000-4000-8000-000000000001",
+  id: "00000000-0000-4000-8000-000000000099",
   openedAt: new Date(),
   status,
   cards: Array.from({ length: 5 }, (_, index) => ({
@@ -122,6 +122,8 @@ describe("Discord booster adapter", () => {
       image: { url: "attachment://booster-5.png" },
     });
     expect(reply.allowedMentions.parse).toEqual([]);
+    for (const card of f.result.cards)
+      expect(JSON.stringify(reply)).not.toContain(card.id);
     expect(f.interaction.followUp).not.toHaveBeenCalled();
   });
 
@@ -136,8 +138,11 @@ describe("Discord booster adapter", () => {
     expect(f.interaction.followUp).toHaveBeenCalledOnce();
     const announcement = f.interaction.followUp.mock.calls[0]?.[0];
     expect(announcement.content).toContain(`<@${user}>`);
-    for (const card of f.result.cards)
-      expect(announcement.content).toContain(card.id);
+    for (const card of f.result.cards) {
+      expect(announcement.content).toContain(card.name);
+      expect(announcement.content).not.toContain(card.id);
+    }
+    expect(announcement.content.split("\n")).toHaveLength(6);
     expect(announcement.allowedMentions.parse).toEqual([]);
   });
 
@@ -176,6 +181,8 @@ describe("Discord booster adapter", () => {
     expect(reply.embeds).toHaveLength(5);
     expect(reply.files).toHaveLength(4);
     expect(reply.embeds[0].toJSON().footer.text).toContain("card is saved");
+    for (const card of f.result.cards)
+      expect(JSON.stringify(reply)).not.toContain(card.id);
     expect(f.service.open).toHaveBeenCalledOnce();
   });
 
@@ -184,6 +191,11 @@ describe("Discord booster adapter", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     f.interaction.editReply.mockRejectedValueOnce(new Error("upload failed"));
     await f.run();
+    for (const card of f.result.cards) {
+      const fallback = f.interaction.editReply.mock.calls[1]?.[0];
+      expect(fallback.content).toContain(card.name);
+      expect(fallback.content).not.toContain(card.id);
+    }
     expect(f.interaction.editReply).toHaveBeenLastCalledWith(
       expect.objectContaining({
         content: expect.stringContaining("Your booster was saved"),

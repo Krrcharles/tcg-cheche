@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {
@@ -70,6 +72,68 @@ afterAll(async () => {
 });
 
 describe("v0 PostgreSQL migration", () => {
+  it.each([
+    "INSERT INTO cards (name, asset_key, rarity) VALUES ('TEST CARD', 'cards/duplicate', 'COMMON')",
+    "UPDATE cards SET name = 'TEST CARD' WHERE name = 'Other card'",
+  ])(
+    "enforces case-insensitive unique names on insert/update: %s",
+    async (query) => {
+      await client.exec(
+        "INSERT INTO cards (name, asset_key, rarity) VALUES ('Other card', 'cards/other', 'COMMON')",
+      );
+      await expect(client.exec(query)).rejects.toMatchObject({
+        code: "23505",
+        constraint: "cards_name_lower_unique",
+      });
+    },
+  );
+
+  it("defines the same unique expression index in Drizzle and PostgreSQL", async () => {
+    expect(getTableConfig(cards).indexes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          config: expect.objectContaining({
+            name: "cards_name_lower_unique",
+            unique: true,
+          }),
+        }),
+      ]),
+    );
+    const index = await client.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE indexname = 'cards_name_lower_unique'",
+    );
+    expect(index.rows[0]?.indexdef).toContain("UNIQUE INDEX");
+    expect(index.rows[0]?.indexdef).toContain("lower(name)");
+  });
+
+  it("fails the upgrade on legacy duplicate names without renaming or deleting data", async () => {
+    const legacy = new PGlite();
+    try {
+      await legacy.exec(
+        await readFile("src/db/migrations/0000_initial_schema.sql", "utf8"),
+      );
+      await legacy.exec(
+        "INSERT INTO cards (name, asset_key, rarity) VALUES ('Pikachu', 'cards/a', 'COMMON'), ('pikachu', 'cards/b', 'RARE')",
+      );
+      const before = await legacy.query(
+        "SELECT * FROM cards ORDER BY asset_key",
+      );
+      await expect(
+        legacy.exec(
+          await readFile(
+            "src/db/migrations/0001_unique_card_names.sql",
+            "utf8",
+          ),
+        ),
+      ).rejects.toThrow("cards_name_lower_unique");
+      expect(
+        await legacy.query("SELECT * FROM cards ORDER BY asset_key"),
+      ).toEqual(before);
+    } finally {
+      await legacy.close();
+    }
+  });
+
   it("creates all six tables from zero and records the migration only once", async () => {
     const tables = await client.query<{ table_name: string }>(
       "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
@@ -88,7 +152,7 @@ describe("v0 PostgreSQL migration", () => {
     const history = await client.query(
       "SELECT * FROM drizzle.__drizzle_migrations",
     );
-    expect(history.rows).toHaveLength(1);
+    expect(history.rows).toHaveLength(2);
     expect(await db.select().from(cardInstances)).toHaveLength(1);
     await client.exec("BEGIN");
   });
@@ -103,7 +167,7 @@ describe("v0 PostgreSQL migration", () => {
     const [created] = await db
       .insert(cards)
       .values({
-        name: "Test card",
+        name: "Other card",
         assetKey: "cards/other.webp",
         rarity: "COMMON",
       })

@@ -16,6 +16,7 @@ import {
   tradeMessage,
   tradeText,
 } from "../src/discord/presenters/trade.js";
+import { CardNotFoundError } from "../src/domain/cards/card-service.js";
 import { type Trade, TradeError } from "../src/domain/trades/trade-service.js";
 import {
   cardA,
@@ -67,8 +68,8 @@ function interaction() {
       getUser: vi.fn(() => ({ id: recipientId })),
     },
     fields: {
-      getTextInputValue: vi.fn((side: string) =>
-        side === "proposer" ? `${cardA} 2` : `${cardB} 1`,
+      getTextInputValue: vi.fn((side: string): string =>
+        side === "proposer" ? "Card A x2" : "Card B x1",
       ),
     },
     showModal: vi.fn(async (modal: unknown) => {
@@ -95,9 +96,9 @@ function fixture() {
     act: vi.fn().mockResolvedValue({ ...trade, status: "COMPLETED" }),
   };
   const collections = {
-    detail: vi.fn(async (_userId: string, id: string) => ({
-      cardId: id,
-      name: `Card ${id}`,
+    detail: vi.fn(async (_userId: string, name: string) => ({
+      cardId: name.toLowerCase() === "card a" ? cardA : cardB,
+      name: name.toLowerCase() === "card a" ? "Card A" : "Card B",
       rarity: "COMMON" as const,
       assetKey: "cards/a",
       ownedCount: 2,
@@ -134,6 +135,62 @@ function fixture() {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Discord trading", () => {
+  it("aggregates repeated resolved names on both sides before persisting UUID quantities", async () => {
+    const f = fixture();
+    const start = interaction();
+    await f.command(start);
+    const form = start.showModal.mock.calls[0]?.[0] as {
+      toJSON(): { custom_id: string };
+    };
+    const submit = interaction();
+    submit.customId = form.toJSON().custom_id;
+    submit.fields.getTextInputValue.mockImplementation((side) =>
+      side === "proposer" ? "Card A x1\ncard a x1" : "card b x1\nCard B x2",
+    );
+    await f.modal(submit);
+    const preview = submit.editReply.mock.calls[0]?.[0];
+    expect(preview.content).toContain("Card A | COMMON | x2");
+    expect(preview.content).toContain("Card B | COMMON | x3");
+    const send = interaction();
+    send.customId = preview.components[0].toJSON().components[0].custom_id;
+    await f.button(send);
+    expect(f.service.create).toHaveBeenCalledExactlyOnceWith(
+      proposerId,
+      recipientId,
+      {
+        proposer: [{ cardId: cardA, quantity: 2 }],
+        recipient: [{ cardId: cardB, quantity: 3 }],
+      },
+    );
+  });
+  it.each(["proposer", "recipient"])(
+    "rejects unknown names on the %s side before proposal persistence",
+    async (side) => {
+      const f = fixture();
+      const start = interaction();
+      await f.command(start);
+      const form = start.showModal.mock.calls[0]?.[0] as {
+        toJSON(): { custom_id: string };
+      };
+      const submit = interaction();
+      submit.customId = form.toJSON().custom_id;
+      if (side === "recipient")
+        f.collections.detail.mockResolvedValueOnce({
+          cardId: cardA,
+          name: "Card A",
+          rarity: "COMMON",
+          assetKey: "cards/a",
+          ownedCount: 2,
+        });
+      f.collections.detail.mockRejectedValueOnce(new CardNotFoundError());
+      await f.modal(submit);
+      expect(submit.editReply).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "Card not found.", components: [] }),
+      );
+      expect(f.service.create).not.toHaveBeenCalled();
+    },
+  );
+
   it("registers a normal-player entry point and a saved-ID recovery option", () => {
     expect(tradeCommand()).toMatchObject({
       name: "trade",
@@ -187,8 +244,14 @@ describe("Discord trading", () => {
       flags: MessageFlags.Ephemeral,
     });
     expect(f.service.create).not.toHaveBeenCalled();
-    expect(f.collections.detail).toHaveBeenCalledWith(proposerId, cardA);
-    expect(f.collections.detail).toHaveBeenCalledWith(recipientId, cardB);
+    expect(f.collections.detail).toHaveBeenCalledWith(proposerId, "Card A");
+    expect(f.collections.detail).toHaveBeenCalledWith(recipientId, "Card B");
+    expect(JSON.stringify(draft.submit.editReply.mock.calls)).not.toContain(
+      cardA,
+    );
+    expect(JSON.stringify(draft.submit.editReply.mock.calls)).not.toContain(
+      cardB,
+    );
     const send = interaction();
     send.customId = draft.sendId;
     await f.button(send);
@@ -216,7 +279,8 @@ describe("Discord trading", () => {
     const form = edit.showModal.mock.calls[0]?.[0] as {
       toJSON(): { custom_id: string; components: unknown[] };
     };
-    expect(JSON.stringify(form.toJSON())).toContain(`${cardA} 2`);
+    expect(JSON.stringify(form.toJSON())).toContain("Card A x2");
+    expect(JSON.stringify(form.toJSON())).not.toContain(cardA);
     const submit = interaction();
     submit.customId = form.toJSON().custom_id;
     await f.modal(submit);
@@ -355,17 +419,27 @@ describe("Discord trading", () => {
 
 describe("trade rendering and form parsing", () => {
   it("parses card quantities and rejects ambiguous lines", () => {
-    expect(parseTradeLines(`\n ${cardA} 2\r\n${cardB} 1\n`)).toEqual([
-      ...offer.proposer,
-      ...offer.recipient,
+    expect(
+      parseTradeLines(
+        "\n Kevin au Buffalo Grill x2\r\nThomas Crocs x1\nCard x2 X3\n",
+      ),
+    ).toEqual([
+      { name: "Kevin au Buffalo Grill", quantity: 2 },
+      { name: "Thomas Crocs", quantity: 1 },
+      { name: "Card x2", quantity: 3 },
     ]);
     for (const input of [
-      `${cardA} -1`,
-      `${cardA} 1.5`,
-      `${cardA} 1 extra`,
+      "Card x-1",
+      "Card x0",
+      "Card x1.5",
+      "Card x1 extra",
+      " x1",
+      "Card x9007199254740992",
+      `${"A".repeat(101)} x1`,
       "name 2",
     ])
-      expect(() => parseTradeLines(input)).toThrow("one card UUID");
+      expect(() => parseTradeLines(input)).toThrow("one Card Name xN");
+    expect(parseTradeLines(" \n\r\n")).toEqual([]);
   });
   it("shows both sides safely and removes controls for every terminal status", () => {
     expect(tradeText(proposerId, recipientId, trade.items)).toContain(
@@ -380,6 +454,9 @@ describe("trade rendering and form parsing", () => {
       const rendered = presentTrade({ ...trade, status });
       expect(rendered.allowedMentions.parse).toEqual([]);
       expect(rendered.content).toContain(status);
+      expect(rendered.content).toContain(trade.id);
+      expect(JSON.stringify(rendered)).not.toContain(cardA);
+      expect(JSON.stringify(rendered)).not.toContain(cardB);
       expect(rendered.components).toHaveLength(status === "PENDING" ? 1 : 0);
       for (const row of rendered.components)
         for (const button of row.toJSON().components)

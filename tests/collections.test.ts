@@ -69,6 +69,22 @@ async function addCard(
 }
 
 describe("collection service and PostgreSQL aggregation", () => {
+  it("suggests catalogue names case-insensitively with a bounded, stable order and literal matching", async () => {
+    for (let i = 29; i >= 0; i--)
+      await addCard(`Card ${String(i).padStart(2, "0")}`, "COMMON", 0, false);
+    await addCard("100%_Cool", "RARE", 0);
+    expect(await service.names(" cARD ", 25)).toEqual(
+      Array.from(
+        { length: 25 },
+        (_, i) => `Card ${String(i).padStart(2, "0")}`,
+      ),
+    );
+    expect(await service.names("%_", 25)).toEqual(["100%_Cool"]);
+    expect(await service.names("' OR true --", 25)).toEqual([]);
+    expect(await service.names("", 1)).toEqual(["100%_Cool"]);
+    await expect(service.names("", 26)).rejects.toThrow(CollectionInputError);
+  });
+
   it("aggregates duplicate instances, keeps disabled cards and counts the whole catalogue", async () => {
     const owned = await addCard("Owned", "RARE", 3, false);
     const other = await addCard("Other player's card", "COMMON", 0);
@@ -112,13 +128,13 @@ describe("collection service and PostgreSQL aggregation", () => {
   });
 
   it.each(["rarity", "name", "quantity"] as const)(
-    "sorts by %s with stable name/UUID ties",
+    "sorts by %s with stable name ties",
     async (sort) => {
       const zulu = await addCard("Zulu", "LEGENDARY", 1);
       const bravo = await addCard("Bravo", "RARE", 3);
       const alpha = await addCard("Alpha", "RARE", 2);
-      const tied = await addCard("Alpha", "RARE", 2);
-      const ties = [alpha.id, tied.id].sort();
+      const tied = await addCard("Alpha Two", "RARE", 2);
+      const ties = [alpha.id, tied.id];
       const expected =
         sort === "rarity"
           ? [zulu.id, ...ties, bravo.id]
@@ -175,14 +191,14 @@ describe("collection service and PostgreSQL aggregation", () => {
 
   it("shows owned, disabled and unowned card details, and distinguishes missing cards", async () => {
     const card = await addCard("Disabled", "EPIC", 4, false);
-    expect(await service.detail(userId, card.id)).toMatchObject({
+    expect(await service.detail(userId, " dISABLED ")).toMatchObject({
       cardId: card.id,
       name: "Disabled",
       ownedCount: 4,
       rarity: "EPIC",
       assetKey: card.assetKey,
     });
-    expect(await service.detail(otherUser, card.id)).toMatchObject({
+    expect(await service.detail(otherUser, card.name)).toMatchObject({
       ownedCount: 0,
     });
     await expect(service.detail(userId, missing)).rejects.toThrow(
@@ -201,8 +217,8 @@ describe("collection service and PostgreSQL aggregation", () => {
       service.list(input as Parameters<CollectionService["list"]>[0]),
     ).rejects.toThrow(CollectionInputError);
   });
-  it("rejects invalid card IDs and numeric snowflakes", async () => {
-    await expect(service.detail(userId, "bad")).rejects.toThrow(
+  it("rejects invalid card names and numeric snowflakes", async () => {
+    await expect(service.detail(userId, " ")).rejects.toThrow(
       CollectionInputError,
     );
     await expect(

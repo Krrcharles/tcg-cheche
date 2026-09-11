@@ -4,6 +4,11 @@ import type { AssetStorage } from "../../storage/asset-storage.js";
 import { type CardRepository, rarities } from "./card.js";
 
 export class CardInputError extends Error {}
+export class CardNameConflictError extends CardInputError {
+  constructor() {
+    super("A card with that name already exists (names are case-insensitive).");
+  }
+}
 export class CardNotFoundError extends Error {
   constructor() {
     super("Card not found.");

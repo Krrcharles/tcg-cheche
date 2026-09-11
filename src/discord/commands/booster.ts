@@ -1,5 +1,6 @@
 import {
   type ChatInputCommandInteraction,
+  escapeMarkdown,
   MessageFlags,
   SlashCommandBuilder,
 } from "discord.js";
@@ -63,7 +64,7 @@ export async function handleBooster(
       error instanceof BoosterUnavailableError;
     if (!known) console.error("Booster operation or response failed.");
     const content = opening
-      ? `Your booster was saved, but its reveal failed. Opening: ${opening.id}.\n${opening.cards.map((card) => `${card.rarity}: ${card.name} (${card.id})`).join("\n")}`
+      ? `Your booster was saved, but its reveal failed. Opening: ${opening.id}.\n${opening.cards.map((card) => `${card.rarity}: ${escapeMarkdown(card.name)}`).join("\n")}`
       : error instanceof BoosterQuotaError
         ? `${error.message} ${presentBoosterStatus(error.status)}`
         : known

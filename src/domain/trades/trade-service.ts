@@ -81,7 +81,7 @@ export function validateTradeOffer(input: TradeOffer): TradeOffer {
   const parsed = offerSchema.safeParse(input);
   if (!parsed.success)
     throw new TradeError(
-      "Use card UUIDs and positive whole-number quantities.",
+      "Use valid cards and positive whole-number quantities.",
     );
   const aggregate = (items: TradeQuantity[]) => {
     const totals = new Map<string, number>();

@@ -1,4 +1,5 @@
 import {
+  type AutocompleteInteraction,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   MessageFlags,
@@ -38,8 +39,10 @@ export function cardCommand() {
     .setDescription("Inspect a card and owned quantity")
     .addStringOption((option) =>
       option
-        .setName("id")
-        .setDescription("Card UUID from a collection or booster")
+        .setName("name")
+        .setDescription("Card name")
+        .setAutocomplete(true)
+        .setMaxLength(100)
         .setRequired(true),
     )
     .addUserOption((option) =>
@@ -79,7 +82,7 @@ export async function handleCollectionCommand(
     if (interaction.commandName === "card") {
       const card = await service.detail(
         userId,
-        interaction.options.getString("id", true),
+        interaction.options.getString("name", true),
       );
       await interaction.editReply(
         await presentCardDetail(card, userId, storage),
@@ -106,6 +109,26 @@ export async function handleCollectionCommand(
         flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
       });
   }
+}
+
+export async function handleCardAutocomplete(
+  interaction: AutocompleteInteraction,
+  guildId: string,
+  service: Pick<CollectionService, "names">,
+) {
+  if (interaction.guildId !== guildId || interaction.commandName !== "card")
+    return;
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== "name") return;
+  let names: string[] = [];
+  try {
+    names = await service.names(String(focused.value), 25);
+  } catch {
+    console.error("Card autocomplete lookup failed.");
+  }
+  await interaction.respond(
+    names.slice(0, 25).map((name) => ({ name, value: name })),
+  );
 }
 
 export async function handleCollectionButton(

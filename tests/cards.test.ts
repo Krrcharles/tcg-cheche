@@ -48,8 +48,8 @@ const create = {
 } as const;
 const missing = "00000000-0000-4000-8000-000000000099";
 
-async function createCard() {
-  const result = await service.execute(admin, create);
+async function createCard(name: string = create.name) {
+  const result = await service.execute(admin, { ...create, name });
   if (result.kind !== "card") throw new Error("Expected a card");
   return result.card;
 }
@@ -105,11 +105,42 @@ describe("admin authorization", () => {
 });
 
 describe("card catalogue service and repository", () => {
-  it("uploads at a generated key and permits duplicate names with distinct identities", async () => {
+  it.each(["Test card", "test CARD", " Test Card "])(
+    "reports a clear create conflict for %s",
+    async (name) => {
+      await createCard();
+      await expect(createCard(name)).rejects.toThrow(
+        "A card with that name already exists",
+      );
+    },
+  );
+
+  it("reports edit conflicts and permits changing only the same card's casing", async () => {
     const first = await createCard();
-    const second = await createCard();
+    const second = await createCard("Other");
+    await expect(
+      service.execute(admin, {
+        operation: "edit",
+        id: first.id,
+        name: " TEST CARD ",
+      }),
+    ).resolves.toMatchObject({
+      card: { id: first.id, name: "TEST CARD", assetKey: first.assetKey },
+    });
+    await expect(
+      service.execute(admin, {
+        operation: "edit",
+        id: second.id,
+        name: "test card",
+      }),
+    ).rejects.toThrow("A card with that name already exists");
+  });
+
+  it("uploads at a generated UUID key and preserves display casing", async () => {
+    const first = await createCard();
+    const second = await createCard("Other card");
     expect(first.id).not.toBe(second.id);
-    expect(first.name).toBe(second.name);
+    expect(first.name).toBe("Test card");
     expect(first.enabled).toBe(true);
     expect(first.assetKey).toBe(`cards/${first.id}`);
     expect(storage.put).toHaveBeenCalledWith(
@@ -196,13 +227,15 @@ describe("card catalogue service and repository", () => {
 
   it("lists disabled cards too, with stable name/ID sorting and bounded pages", async () => {
     const created = await Promise.all(
-      Array.from({ length: 12 }, () => createCard()),
+      Array.from({ length: 12 }, (_, i) =>
+        createCard(`Card ${String(i).padStart(2, "0")}`),
+      ),
     );
     await service.execute(admin, {
       operation: "disable",
       id: created[0]?.id ?? missing,
     });
-    const sorted = created.map((card) => card.id).sort();
+    const sorted = created.map((card) => card.id);
     const first = await service.execute(admin, { operation: "list", page: 1 });
     const second = await service.execute(admin, { operation: "list", page: 2 });
     if (first.kind !== "list" || second.kind !== "list")
