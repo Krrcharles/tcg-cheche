@@ -4,7 +4,7 @@ Discord TCG built around a shared card catalogue, daily boosters, collections, a
 
 ## Project status
 
-Product/domain design v0 is documented. The bot supports admin card catalogue commands, daily boosters, collection browsing, card details, and graceful shutdown. Trades remain for a later issue.
+Product/domain design v0 is documented. The bot supports admin card catalogue and player maintenance commands, booster simulation, daily boosters, collection browsing, card details, and graceful shutdown. Trades remain for a later issue.
 
 ## Architecture v0
 
@@ -102,3 +102,15 @@ Startup registers `/admin card` in `DISCORD_GUILD_ID` (the bot installation need
 Names must contain 1–100 characters after trimming. Image attachments must declare PNG, JPEG, WebP, or GIF and contain at most 8 MiB; the service checks the downloaded byte count too. Images are buffered without transcoding. Successful mutations log the actor, operation, and card UUID. No card-delete command is exposed.
 
 New uploads use `cards/<uuid>` keys. S3 and PostgreSQL do not share a transaction: if upload succeeds but the database write fails, creation can leave an unused object, or replacement can succeed without updating `updated_at`. Check the record and storage before retrying; automatic deletion could remove an object referenced by a write whose outcome was uncertain. Concurrent image replacements follow S3's last successful write behavior. No new schema or dependencies are needed.
+
+## Admin player maintenance and simulation
+
+The same configured admin-user guard protects all `/admin player` and `/admin booster` commands, including reads. Replies are ephemeral and limited to the configured guild.
+
+- `/admin player show player`: show the player's internal ID, distinct cards, total copies, current-day booster usage/remaining quota, and pending trades on either side. Unknown players show zero state without being created.
+- `/admin player give-card player card quantity`: give copies identified by card UUID, including disabled cards, creating the player if needed. Copies have `ADMIN` provenance and consume no booster quota.
+- `/admin player remove-card player card quantity`: remove that many copies of the selected card from the selected player, or fail without removing anything if there are too few. Pending trades reserve nothing and must revalidate ownership on acceptance.
+- `/admin player reset-daily player`: clear only the selected player's opening history for the current configured calendar day. This restores their quota while preserving every card, its current owner, acquisition timestamp, and source, including cards already traded away. Links from those copies to the cleared opening records become null. Earlier/later days and other players' opening history stay intact. This intentionally loses the cleared opening history and its provenance links; use it for testing or exceptional correction.
+- `/admin booster simulate [count]`: roll standard boosters using the same engine and startup-loaded configuration as real openings. The default is one booster. The reply shows rarity counts/percentages and attaches JSON with per-card UUID, name, rarity, and count (including enabled cards with zero draws). It reads the enabled catalogue once and never creates players, openings, or copies, consumes quota, or accesses images. An incomplete catalogue fails with the same error as real openings.
+
+Give/remove quantities and simulation counts are limited to 1–1,000 per request to bound database writes and synchronous simulation work; these are operational limits, not game-balancing rules. Player maintenance transactions lock the selected player at READ COMMITTED isolation, matching booster opening coordination. Reset uses the same timezone and half-open local-day bounds as real quota checks, including DST, with time sampled after acquiring the lock. Clearing opening links and deleting history succeed atomically or both roll back. Successful mutations log actor, target, action, card/quantity when applicable, and the day/count for resets after commit. No new schema, dependencies, or persistent audit system are introduced.

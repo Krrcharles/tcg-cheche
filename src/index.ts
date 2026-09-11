@@ -6,11 +6,13 @@ import { loadConfiguration } from "./config/index.js";
 import { DrizzleBoosterRepository } from "./db/repositories/boosters.js";
 import { DrizzleCardRepository } from "./db/repositories/cards.js";
 import { DrizzleCollectionRepository } from "./db/repositories/collections.js";
+import { DrizzleMaintenanceRepository } from "./db/repositories/maintenance.js";
 import { startApplication } from "./discord/application.js";
+import { handleAdminCard } from "./discord/commands/admin-card.js";
 import {
-  adminCardCommand,
-  handleAdminCard,
-} from "./discord/commands/admin-card.js";
+  adminCommand,
+  handleAdminMaintenance,
+} from "./discord/commands/admin-maintenance.js";
 import { boosterCommand, handleBooster } from "./discord/commands/booster.js";
 import {
   cardCommand,
@@ -19,6 +21,7 @@ import {
   handleCollectionCommand,
 } from "./discord/commands/collection.js";
 import { createAdminGuard } from "./domain/administration/admin-guard.js";
+import { MaintenanceService } from "./domain/administration/maintenance-service.js";
 import { BoosterService } from "./domain/boosters/booster-service.js";
 import { CardService } from "./domain/cards/card-service.js";
 import { CollectionService } from "./domain/collections/collection-service.js";
@@ -37,11 +40,23 @@ async function main() {
     createAdminGuard(game.admin),
   );
   const boosters = new BoosterService(new DrizzleBoosterRepository(db), game);
+  const maintenance = new MaintenanceService(
+    new DrizzleMaintenanceRepository(db),
+    game,
+    createAdminGuard(game.admin),
+  );
   const collections = new CollectionService(
     new DrizzleCollectionRepository(db),
   );
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isChatInputCommand()) {
+      void handleAdminMaintenance(
+        interaction,
+        environment.DISCORD_GUILD_ID,
+        maintenance,
+      ).catch(() =>
+        console.error("Discord admin maintenance response failed."),
+      );
       void handleCollectionCommand(
         interaction,
         environment.DISCORD_GUILD_ID,
@@ -95,7 +110,7 @@ async function main() {
     if (!client.application)
       throw new Error("Discord application is unavailable.");
     await client.application.commands.create(
-      adminCardCommand(),
+      adminCommand(),
       environment.DISCORD_GUILD_ID,
     );
     await client.application.commands.create(
