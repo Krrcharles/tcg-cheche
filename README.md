@@ -4,7 +4,7 @@ Discord TCG built around a shared card catalogue, daily boosters, collections, a
 
 ## Project status
 
-Product/domain design v0 is documented. The bot supports admin card catalogue and player maintenance commands, booster simulation, daily boosters, collection browsing, card details, and graceful shutdown. Trades remain for a later issue.
+Product/domain design v0 is documented. The bot supports admin card catalogue and player maintenance commands, booster simulation, daily boosters, collection browsing, card details, bilateral trading, and graceful shutdown.
 
 ## Architecture v0
 
@@ -66,7 +66,7 @@ The v0 Drizzle schema is in `src/db/schema/index.ts`; generated SQL and migratio
 
 Migrations are explicit and are not run on bot startup. Drizzle records applied migrations, so rerunning `db:migrate` applies only new migrations. Foreign keys use PostgreSQL's non-cascading `NO ACTION` default. Status, rarity, source, and side values use text with check constraints; balancing changes do not require migrations. Application updates must set `cards.updated_at` when changing a card; its database default only supplies the creation timestamp.
 
-`npm test` migrates a fresh in-memory PostgreSQL database, checks repeat migration execution, and exercises constraints, indexes, and booster transactions. PGlite serializes transactions; the separate real-server concurrency tests below verify booster row locking. Trade transactions remain for their issue.
+`npm test` migrates a fresh in-memory PostgreSQL database, checks repeat migration execution, and exercises constraints, indexes, booster transactions, and trade atomicity. PGlite serializes transactions; the separate real-server concurrency tests below verify row locking across independent connections.
 
 ## Daily boosters
 
@@ -87,6 +87,18 @@ Run the server concurrency tests against a disposable PostgreSQL server by setti
 `/card id [player]` shows a card's name, rarity, image, and owned quantity, including zero copies. Copy a UUID from a collection or booster. Gallery/detail images are retrieved through the private storage adapter and attached to Discord. Missing images leave the card text readable. These commands are available to normal players in the configured guild.
 
 Completion counts all catalogue cards, including disabled ones, because disabling only changes future booster eligibility. Browsing does not create players or mutate ownership. A single PostgreSQL statement aggregates the selected player's copies alongside the catalogue, giving each collection read a consistent snapshot. Sorting and pagination happen in the Discord-independent service over that small catalogue; each button refreshes the data and clamps pages if the collection has shrunk. No schema changes, cache, or persistent UI sessions are needed. As with booster reveals, images are buffered without resizing; live Discord upload limits still apply.
+
+## Card trading
+
+`/trade player:@player` opens a private offer form. Copy card UUIDs from `/collection` and enter one `card-uuid quantity` pair per line in the two fields (what you give and what you request). Submitting the form shows a private preview with card names, rarities, and quantities. Edit the draft or send the proposal to post a public pending trade. Only the recipient can accept/reject; only the proposer can cancel. `/trade id:<trade-uuid>` reopens an existing trade with its current status and controls, including after a restart or failed delivery.
+
+Repeated card IDs are aggregated. Quantities must be positive integers; at least one side must contain a card, and either side may be empty. Disabled cards remain tradable. Creation validates the proposer's ownership and both sides' catalogue IDs; it does not reserve or lock instances. Requested ownership is checked on acceptance. Stale trades remain pending and transfer nothing, so they can be retried when ownership is sufficient or explicitly rejected/cancelled. There is no currency, counter-offer, editing of sent proposals, or automatic expiry.
+
+Every action locks both player rows in UUID order, then locks/reloads the trade. Acceptance checks and locks all matching instances on both sides before moving any, and updates ownership plus completion status in one READ COMMITTED PostgreSQL transaction. Instance IDs and acquisition provenance are preserved. Competing accepts cannot complete twice. These player locks are shared with boosters and admin maintenance.
+
+The builder uses text entry instead of collection pickers to keep the initial UI small. Each field supports Discord's 4,000-character limit; long previews/proposals attach the full offer as text instead of truncating quantities. Only one unsent draft per player is retained in memory and a new builder or restart discards it. Saved trades have no UI-session dependency. Discord delivery happens after the database commit; delivery failure does not undo a saved proposal or completed exchange. Reopen by the reported trade ID before retrying. Live Discord delivery still needs a guild smoke test.
+
+Run `npm test -- tests/trades-concurrency.test.ts` with `TEST_DATABASE_URL` pointing at a disposable PostgreSQL server whose user has `CREATEDB`. The suite creates and removes its own database and checks held player locks, competing/double acceptance, reciprocal lock ordering, accept versus reject/cancel, creation's foreign-key lock ordering, creation with locked instances, and rollback after a completion-write failure. It skips when the variable is absent. The default suite covers input validation, permissions, stale quantities, same-card exchanges, transaction rollback, and Discord flows without external services.
 
 ## Admin card catalogue
 

@@ -7,6 +7,7 @@ import { DrizzleBoosterRepository } from "./db/repositories/boosters.js";
 import { DrizzleCardRepository } from "./db/repositories/cards.js";
 import { DrizzleCollectionRepository } from "./db/repositories/collections.js";
 import { DrizzleMaintenanceRepository } from "./db/repositories/maintenance.js";
+import { DrizzleTradeRepository } from "./db/repositories/trades.js";
 import { startApplication } from "./discord/application.js";
 import { handleAdminCard } from "./discord/commands/admin-card.js";
 import {
@@ -20,11 +21,13 @@ import {
   handleCollectionButton,
   handleCollectionCommand,
 } from "./discord/commands/collection.js";
+import { createTradeHandlers, tradeCommand } from "./discord/commands/trade.js";
 import { createAdminGuard } from "./domain/administration/admin-guard.js";
 import { MaintenanceService } from "./domain/administration/maintenance-service.js";
 import { BoosterService } from "./domain/boosters/booster-service.js";
 import { CardService } from "./domain/cards/card-service.js";
 import { CollectionService } from "./domain/collections/collection-service.js";
+import { TradeService } from "./domain/trades/trade-service.js";
 import { S3AssetStorage } from "./storage/s3-asset-storage.js";
 
 async function main() {
@@ -48,8 +51,16 @@ async function main() {
   const collections = new CollectionService(
     new DrizzleCollectionRepository(db),
   );
+  const tradeHandlers = createTradeHandlers(
+    environment.DISCORD_GUILD_ID,
+    new TradeService(new DrizzleTradeRepository(db)),
+    collections,
+  );
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isChatInputCommand()) {
+      void tradeHandlers
+        .command(interaction)
+        .catch(() => console.error("Discord trade response failed."));
       void handleAdminMaintenance(
         interaction,
         environment.DISCORD_GUILD_ID,
@@ -76,6 +87,9 @@ async function main() {
       ).catch(() => console.error("Discord booster response failed."));
     }
     if (interaction.isButton()) {
+      void tradeHandlers
+        .button(interaction)
+        .catch(() => console.error("Discord trade component response failed."));
       void handleCollectionButton(
         interaction,
         environment.DISCORD_GUILD_ID,
@@ -84,6 +98,11 @@ async function main() {
       ).catch(() =>
         console.error("Discord collection component response failed."),
       );
+    }
+    if (interaction.isModalSubmit()) {
+      void tradeHandlers
+        .modal(interaction)
+        .catch(() => console.error("Discord trade form response failed."));
     }
   });
   client.once(Events.ClientReady, () => {
@@ -123,6 +142,10 @@ async function main() {
     );
     await client.application.commands.create(
       cardCommand(),
+      environment.DISCORD_GUILD_ID,
+    );
+    await client.application.commands.create(
+      tradeCommand(),
       environment.DISCORD_GUILD_ID,
     );
   } catch (error) {
