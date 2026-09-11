@@ -17,7 +17,7 @@ Card
 - enabled
 ```
 
-`name` is the human-readable display name used by Discord interactions such as drop announcements, collection views, and trades. It is not required to be unique; `id` remains the technical identity of the card.
+`name` is the normal player-facing identifier used by Discord interactions such as booster announcements, collection views, card details, and trades. Names are unique case-insensitively across the catalogue: `Pikachu` and `pikachu` conflict and resolve to the same card. Stored/display casing is preserved. `id` remains the UUID technical identity, including all ownership and trade references. Player interactions do not require or expose card UUIDs; admin catalogue and maintenance commands may continue using them in v0.
 
 `asset_key` references the shared S3-compatible object storage.
 
@@ -196,7 +196,7 @@ The player can switch back to the list view without issuing a new command.
 
 ### Card detail
 
-A card can be inspected individually through a command such as `/card`.
+A card can be inspected individually through `/card name:"Kevin au Buffalo Grill" [player]`. Name lookup is case-insensitive, with catalogue-name autocomplete. Unknown names return `Card not found.`
 
 The detail view should show at least:
 
@@ -304,7 +304,7 @@ The fundamental invariant is:
 
 ### Discord presentation
 
-Trade creation should be interactive and presentation-specific. A slash command such as `/trade @player` may open a builder allowing the proposer to add cards from their own collection and requested cards from the recipient's collection before sending the proposal.
+`/trade player:@player` opens a builder accepting one `Card Name xN` line per card on either side. The final `x<positive integer>` suffix is the quantity; names may contain spaces. Names resolve case-insensitively to internal UUIDs before creating a proposal, and repeated references to the same resolved card are aggregated. Unknown names fail before persistence. Previews and saved trade messages display names, rarities, and quantities, without card UUIDs. `/trade id:<uuid>` remains available for recovery; trade IDs are unaffected.
 
 Once sent, the pending trade is displayed with its two sides and Discord actions such as accept, reject, and cancel.
 

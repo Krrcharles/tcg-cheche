@@ -303,7 +303,7 @@ describe("trade input validation without persistence", () => {
         ...offer,
         proposer: [{ cardId: "bad", quantity: 1 }],
       }),
-    ).toThrow("UUID");
+    ).toThrow("Use valid cards");
     expect(() =>
       validateTradeOffer({
         ...offer,

@@ -35,7 +35,9 @@ created_at  timestamptz not null
 updated_at  timestamptz not null
 ```
 
-`name` is not unique. `id` is the identity of the card.
+`name` is unique case-insensitively via the PostgreSQL unique expression index `cards_name_lower_unique` on `lower(name)`. Lookups use the same `lower(name)` comparison and preserve stored/display casing. The migration fails on existing conflicts; it never silently renames or deduplicates cards. Correct conflicting names explicitly before retrying.
+
+`name` is the player-facing identifier, while `id` remains the UUID technical identity. All primary/foreign keys and asset keys are unchanged. Player commands resolve names to UUIDs at the application boundary, and player presentations omit card UUIDs. Admin commands may continue accepting UUIDs in v0.
 
 Initial allowed rarity values are:
 

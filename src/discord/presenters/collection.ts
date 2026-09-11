@@ -39,7 +39,7 @@ async function cardImages(
   entries.forEach((entry, index) => {
     const image = images[index];
     if (image?.status !== "fulfilled") {
-      missing.push(entry.cardId);
+      missing.push(escapeMarkdown(entry.name));
       return;
     }
     const bytes = image.value;
@@ -57,7 +57,7 @@ async function cardImages(
       new MediaGalleryItemBuilder()
         .setURL(`attachment://${name}`)
         .setDescription(
-          `${entry.name} | ${entry.rarity} | ${entry.ownedCount} copies | ${entry.cardId}`,
+          `${entry.name} | ${entry.rarity} | ${entry.ownedCount} copies`,
         ),
     );
   });
@@ -65,7 +65,7 @@ async function cardImages(
 }
 
 function cardLine(entry: CollectionEntry) {
-  return `${escapeMarkdown(entry.name.slice(0, 100))} | ${entry.rarity} | ${entry.ownedCount} copies\n\`${entry.cardId}\``;
+  return `${escapeMarkdown(entry.name.slice(0, 100))} | ${entry.rarity} | ${entry.ownedCount} copies`;
 }
 
 export async function presentCollection(

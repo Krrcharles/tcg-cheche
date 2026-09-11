@@ -15,7 +15,8 @@ export interface CollectionRepository {
     entries: CollectionEntry[];
     catalogueCount: number;
   }>;
-  card(userId: string, cardId: string): Promise<CollectionEntry | undefined>;
+  card(userId: string, name: string): Promise<CollectionEntry | undefined>;
+  names(query: string, limit: number): Promise<string[]>;
 }
 
 export const collectionSorts = ["rarity", "name", "quantity"] as const;
@@ -29,7 +30,7 @@ const querySchema = z.object({
 export class CollectionInputError extends Error {
   constructor() {
     super(
-      "Invalid collection input. Use a valid player, sort, page, or card UUID.",
+      "Invalid collection input. Use a valid player, sort, page, or card name (1–100 characters).",
     );
   }
 }
@@ -70,13 +71,20 @@ export class CollectionService {
     };
   }
 
-  async detail(userId: string, cardId: string) {
+  async names(query: string, limit: number) {
     if (
-      !userIdSchema.safeParse(userId).success ||
-      !z.uuid().safeParse(cardId).success
+      !z.string().trim().max(100).safeParse(query).success ||
+      !z.number().int().min(1).max(25).safeParse(limit).success
     )
       throw new CollectionInputError();
-    const card = await this.repository.card(userId, cardId);
+    return this.repository.names(query.trim(), limit);
+  }
+
+  async detail(userId: string, name: string) {
+    const parsed = z.string().trim().min(1).max(100).safeParse(name);
+    if (!userIdSchema.safeParse(userId).success || !parsed.success)
+      throw new CollectionInputError();
+    const card = await this.repository.card(userId, parsed.data);
     if (!card) throw new CardNotFoundError();
     return card;
   }

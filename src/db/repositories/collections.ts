@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { CollectionRepository } from "../../domain/collections/collection-service.js";
 import { cardInstances, cards, players } from "../schema/index.js";
@@ -42,8 +42,20 @@ export class DrizzleCollectionRepository implements CollectionRepository {
     };
   }
 
-  async card(userId: string, cardId: string) {
-    const [card] = await this.query(userId).where(eq(cards.id, cardId));
+  async card(userId: string, name: string) {
+    const [card] = await this.query(userId).where(
+      sql`lower(${cards.name}) = lower(${name})`,
+    );
     return card;
+  }
+
+  async names(query: string, limit: number) {
+    const rows = await this.db
+      .select({ name: cards.name })
+      .from(cards)
+      .where(sql`strpos(lower(${cards.name}), lower(${query})) > 0`)
+      .orderBy(asc(sql`lower(${cards.name})`))
+      .limit(limit);
+    return rows.map((row) => row.name);
   }
 }

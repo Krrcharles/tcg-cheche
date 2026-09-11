@@ -13,7 +13,10 @@ import {
 } from "discord.js";
 import { z } from "zod";
 import { CardNotFoundError } from "../../domain/cards/card-service.js";
-import type { CollectionService } from "../../domain/collections/collection-service.js";
+import {
+  CollectionInputError,
+  type CollectionService,
+} from "../../domain/collections/collection-service.js";
 import {
   TradeError,
   type TradeItem,
@@ -47,12 +50,19 @@ export function parseTradeLines(value: string) {
     .split(/\r?\n/)
     .filter((line) => line.trim())
     .map((line) => {
-      const match = /^\s*([\da-f-]+)\s+(\d+)\s*$/i.exec(line);
-      if (!match?.[1] || !match[2])
+      const match = /^\s*(.+)\s+x(\d+)\s*$/i.exec(line);
+      const name = match?.[1]?.trim();
+      const quantity = Number(match?.[2]);
+      if (
+        !name ||
+        name.length > 100 ||
+        !Number.isSafeInteger(quantity) ||
+        quantity <= 0
+      )
         throw new TradeError(
-          "Use one card UUID and quantity per line, separated by a space. Copy UUIDs from /collection.",
+          "Use one Card Name xN per line, with a positive whole-number quantity and a name of 1–100 characters.",
         );
-      return { cardId: match[1], quantity: Number(match[2]) };
+      return { name, quantity };
     });
 }
 
@@ -60,6 +70,7 @@ interface Draft {
   id: string;
   recipientId: string;
   offer: TradeOffer;
+  items: TradeItem[];
   busy: boolean;
 }
 
@@ -72,12 +83,14 @@ function form(draft: Draft) {
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false)
         .setMaxLength(4000)
-        .setPlaceholder(
-          "Card UUID and quantity per line (copy IDs from /collection)",
-        )
+        .setPlaceholder("Kevin au Buffalo Grill x2\nThomas Crocs x1")
         .setValue(
-          draft.offer[side]
-            .map((item) => `${item.cardId} ${item.quantity}`)
+          draft.items
+            .filter(
+              (item) =>
+                item.side === (side === "proposer" ? "PROPOSER" : "RECIPIENT"),
+            )
+            .map((item) => `${item.name} x${item.quantity}`)
             .join("\n"),
         ),
     );
@@ -85,8 +98,8 @@ function form(draft: Draft) {
     .setCustomId(`trade:build:${draft.id}`)
     .setTitle("Build offer — preview before sending")
     .addComponents(
-      field("proposer", "You give: card UUID quantity"),
-      field("recipient", "You request: card UUID quantity"),
+      field("proposer", "You give: Card Name xN"),
+      field("recipient", "You request: Card Name xN"),
     );
 }
 
@@ -100,7 +113,9 @@ async function report(
   preserveMessage = false,
 ) {
   const expected =
-    error instanceof TradeError || error instanceof CardNotFoundError;
+    error instanceof TradeError ||
+    error instanceof CardNotFoundError ||
+    error instanceof CollectionInputError;
   if (!expected) console.error("Trade operation or Discord response failed.");
   const content = expected
     ? error.message
@@ -176,6 +191,7 @@ export function createTradeHandlers(
           id: randomUUID(),
           recipientId: player.id,
           offer: { proposer: [], recipient: [] },
+          items: [],
           busy: false,
         };
         await interaction.showModal(form(draft));
@@ -197,32 +213,54 @@ export function createTradeHandlers(
         draft = requireDraft(interaction, match[1]);
         draft.busy = true;
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        const offer = validateTradeOffer({
+        const lines = {
           proposer: parseTradeLines(
             interaction.fields.getTextInputValue("proposer"),
           ),
           recipient: parseTradeLines(
             interaction.fields.getTextInputValue("recipient"),
           ),
-        });
-        const items: TradeItem[] = [];
+        };
+        const resolved: TradeItem[] = [];
+        const quantities: TradeOffer = { proposer: [], recipient: [] };
         for (const side of ["proposer", "recipient"] as const) {
-          for (const item of offer[side]) {
+          for (const item of lines[side]) {
             const card = await collections.detail(
               side === "proposer" ? interaction.user.id : draft.recipientId,
-              item.cardId,
+              item.name,
             );
-            items.push({
-              ...item,
+            quantities[side].push({
+              cardId: card.cardId,
+              quantity: item.quantity,
+            });
+            resolved.push({
+              cardId: card.cardId,
+              quantity: item.quantity,
               side: side === "proposer" ? "PROPOSER" : "RECIPIENT",
               name: card.name,
               rarity: card.rarity,
             });
           }
         }
+        const offer = validateTradeOffer(quantities);
+        const items = (["proposer", "recipient"] as const).flatMap((side) =>
+          offer[side].map((item) => {
+            const card = resolved.find((card) => card.cardId === item.cardId);
+            if (!card) throw new CardNotFoundError();
+            return {
+              ...card,
+              ...item,
+              side:
+                side === "proposer"
+                  ? ("PROPOSER" as const)
+                  : ("RECIPIENT" as const),
+            };
+          }),
+        );
         // A fresh ID invalidates all older previews of this draft.
         draft.id = randomUUID();
         draft.offer = offer;
+        draft.items = items;
         await interaction.editReply(
           tradeMessage(
             "Private trade preview — nothing reserved",

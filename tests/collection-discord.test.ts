@@ -1,4 +1,5 @@
 import {
+  type AutocompleteInteraction,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   ComponentType,
@@ -8,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cardCommand,
   collectionCommand,
+  handleCardAutocomplete,
   handleCollectionButton,
   handleCollectionCommand,
 } from "../src/discord/commands/collection.js";
@@ -73,7 +75,7 @@ function fixture(
     deferred: false,
     options: {
       getUser: vi.fn(() => (target ? { id: target } : null)),
-      getString: vi.fn(() => card.cardId),
+      getString: vi.fn(() => card.name),
     },
     deferReply: vi.fn(async () => {
       interaction.deferred = true;
@@ -107,15 +109,84 @@ function fixture(
 }
 afterEach(() => vi.restoreAllMocks());
 
+describe("card name autocomplete", () => {
+  function autocomplete(
+    guildId: string | null = guild,
+    commandName = "card",
+    name = "name",
+  ) {
+    return {
+      guildId,
+      commandName,
+      options: { getFocused: vi.fn(() => ({ name, value: "cArD" })) },
+      respond: vi.fn(),
+    };
+  }
+  it("returns at most 25 name choices with their stored casing and no IDs", async () => {
+    const names = Array.from({ length: 30 }, (_, i) => `Card ${i}`);
+    const service = { names: vi.fn().mockResolvedValue(names) };
+    const i = autocomplete();
+    await handleCardAutocomplete(
+      i as unknown as AutocompleteInteraction,
+      guild,
+      service,
+    );
+    expect(service.names).toHaveBeenCalledExactlyOnceWith("cArD", 25);
+    expect(i.respond).toHaveBeenCalledExactlyOnceWith(
+      names.slice(0, 25).map((name) => ({ name, value: name })),
+    );
+  });
+  it.each([
+    [null, "card", "name"],
+    ["other", "card", "name"],
+    [guild, "admin", "name"],
+    [guild, "card", "other"],
+  ])(
+    "ignores unrelated autocomplete %s %s %s",
+    async (guildId, command, name) => {
+      const i = autocomplete(guildId, command ?? "", name ?? "");
+      const service = { names: vi.fn() };
+      await handleCardAutocomplete(
+        i as unknown as AutocompleteInteraction,
+        guild,
+        service,
+      );
+      expect(service.names).not.toHaveBeenCalled();
+      expect(i.respond).not.toHaveBeenCalled();
+    },
+  );
+  it("responds with no choices on no matches or query failure without exposing errors", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const service = {
+      names: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockRejectedValueOnce(new Error("secret URL")),
+    };
+    for (let n = 0; n < 2; n++) {
+      const i = autocomplete();
+      await handleCardAutocomplete(
+        i as unknown as AutocompleteInteraction,
+        guild,
+        service,
+      );
+      expect(i.respond).toHaveBeenCalledExactlyOnceWith([]);
+    }
+  });
+});
+
 describe("collection commands and navigation", () => {
-  it("registers normal-player commands with optional targets and a required card UUID", () => {
+  it("registers normal-player commands with optional targets and an autocompleted card name", () => {
     expect(collectionCommand()).toMatchObject({
       name: "collection",
       options: [{ name: "player" }],
     });
     expect(cardCommand()).toMatchObject({
       name: "card",
-      options: [{ name: "id", required: true }, { name: "player" }],
+      options: [
+        { name: "name", required: true, autocomplete: true },
+        { name: "player" },
+      ],
     });
     expect(collectionCommand().default_member_permissions).toBeUndefined();
     expect(cardCommand().default_member_permissions).toBeUndefined();
@@ -254,7 +325,7 @@ describe("collection commands and navigation", () => {
       await f.command();
       expect(f.service.detail).toHaveBeenCalledWith(
         target || viewerId,
-        card.cardId,
+        card.name,
       );
       expect(f.storage.get).toHaveBeenCalledWith(card.assetKey);
       expect(f.service.list).not.toHaveBeenCalled();
@@ -314,6 +385,10 @@ describe("collection presenters", () => {
     for (const entry of page.entries)
       expect(storage.get).toHaveBeenCalledWith(entry.assetKey);
     expect(gallery.allowedMentions.parse).toEqual([]);
+    for (const entry of page.entries) {
+      expect(JSON.stringify(list)).not.toContain(entry.cardId);
+      expect(JSON.stringify(gallery)).not.toContain(entry.cardId);
+    }
     // Updates explicitly discard attachments from the previous page/mode.
     expect(list.attachments).toEqual([]);
     expect(gallery.attachments).toEqual([]);
@@ -352,7 +427,8 @@ describe("collection presenters", () => {
       );
       expect(result.files).toHaveLength(10 - failures);
       expect(json).toContain("Images temporarily unavailable");
-      expect(json).toContain(card.cardId);
+      for (const entry of page.entries)
+        expect(json).not.toContain(entry.cardId);
       expect(json).toContain("Previous");
       expect(json).not.toContain("secret");
     },
@@ -370,6 +446,7 @@ describe("collection presenters", () => {
         get: async () => bytes as Buffer,
       });
       expect(result.files[0]?.name).toBe(`collection-1.${extension}`);
+      expect(JSON.stringify(result)).not.toContain(card.cardId);
       expect(result.components[0]?.toJSON()).toMatchObject({
         content: expect.stringContaining("RARE | 1 copies"),
       });
@@ -383,6 +460,7 @@ describe("collection presenters", () => {
       },
     });
     expect(result.files).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(card.cardId);
     expect(
       JSON.stringify(result.components.map((component) => component.toJSON())),
     ).toContain("Image temporarily unavailable");

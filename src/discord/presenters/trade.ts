@@ -23,7 +23,7 @@ export function tradeText(
         .filter((item) => item.side === side)
         .map(
           (item) =>
-            `${escapeMarkdown(item.name)} | ${item.rarity} | x${item.quantity} | ${item.cardId}`,
+            `${escapeMarkdown(item.name)} | ${item.rarity} | x${item.quantity}`,
         );
       return `<@${userId}> gives:\n${lines.join("\n") || "Nothing"}`;
     })

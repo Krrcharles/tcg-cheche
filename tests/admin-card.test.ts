@@ -7,7 +7,10 @@ import {
 } from "../src/discord/commands/admin-card.js";
 import { createAdminGuard } from "../src/domain/administration/admin-guard.js";
 import type { CardRepository } from "../src/domain/cards/card.js";
-import { CardService } from "../src/domain/cards/card-service.js";
+import {
+  CardNameConflictError,
+  CardService,
+} from "../src/domain/cards/card-service.js";
 
 const guild = "123456789012345678";
 const admin = "987654321098765432";
@@ -80,6 +83,24 @@ afterEach(() => {
 });
 
 describe("Discord admin card adapter", () => {
+  it("returns a clear name-conflict error for UUID-based editing", async () => {
+    const f = fixture("edit");
+    vi.mocked(f.repository.update).mockRejectedValueOnce(
+      new CardNameConflictError(),
+    );
+    await f.run();
+    expect(f.repository.update).toHaveBeenCalledWith(card.id, {
+      name: "Test",
+      rarity: "RARE",
+    });
+    expect(f.interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining(
+          "A card with that name already exists",
+        ),
+      }),
+    );
+  });
   it.each([
     [Buffer.from([0x89, 0x50, 0x4e, 0x47]), "png"],
     [Buffer.from([0xff, 0xd8, 0xff]), "jpg"],

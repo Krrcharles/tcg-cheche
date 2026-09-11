@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "cards_name_lower_unique" ON "cards" USING btree (lower("name"));

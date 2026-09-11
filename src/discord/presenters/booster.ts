@@ -20,7 +20,7 @@ export async function presentBoosterOpening(
   const embeds = opening.cards.map((card, index) => {
     const embed = new EmbedBuilder()
       .setTitle(card.name.slice(0, 100))
-      .setDescription(`${card.rarity}\n${card.id}`);
+      .setDescription(card.rarity);
     const image = images[index];
     if (image?.status === "fulfilled") {
       const bytes = image.value;
@@ -57,7 +57,7 @@ export function presentLegendaryAnnouncement(
   const legendary = opening.cards.filter((card) => card.rarity === "LEGENDARY");
   if (!legendary.length) return undefined;
   return {
-    content: `🌟 <@${userId}> pulled LEGENDARY cards!\n${legendary.map((card) => `• ${escapeMarkdown(card.name.slice(0, 100))} (${card.id})`).join("\n")}`,
+    content: `🌟 <@${userId}> pulled LEGENDARY cards!\n${legendary.map((card) => `• ${escapeMarkdown(card.name.slice(0, 100))}`).join("\n")}`,
     allowedMentions: { parse: [] as never[] },
   };
 }

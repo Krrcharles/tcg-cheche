@@ -8,6 +8,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -37,6 +38,7 @@ export const cards = pgTable(
       .notNull(),
   },
   (table) => [
+    uniqueIndex("cards_name_lower_unique").on(sql`lower(${table.name})`),
     check(
       "cards_rarity_check",
       sql`${table.rarity} in ('COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY')`,

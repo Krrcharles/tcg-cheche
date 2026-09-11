@@ -19,7 +19,22 @@ async function main() {
   }
 }
 
-void main().catch(() => {
+void main().catch((error: unknown) => {
+  let cause = error;
+  while (cause instanceof Error) {
+    if (
+      "code" in cause &&
+      cause.code === "23505" &&
+      cause.message.includes("cards_name_lower_unique")
+    ) {
+      console.error(
+        "Database migration failed: card names must be unique case-insensitively. Correct duplicate names explicitly before retrying; no cards were renamed or deduplicated.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    cause = cause.cause;
+  }
   console.error(
     "Database migration failed. Check DATABASE_URL, connectivity, and migration SQL.",
   );

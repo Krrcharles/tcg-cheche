@@ -85,7 +85,7 @@ function context(
         );
       return entries.map((item) => {
         const card = catalogue.find((card) => card.id === item.cardId);
-        if (!card) throw new TradeError(`Card ${item.cardId} not found.`);
+        if (!card) throw new TradeError("Card not found.");
         return { ...item, name: card.name, rarity: card.rarity };
       });
     },
